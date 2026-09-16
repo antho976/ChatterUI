@@ -240,14 +240,31 @@ export const buildChatCompletionContext = async ({
     }
 
     if (postHistory.text) {
-        // messageBuffer is newest-first: inserting after the latest user message puts the
-        // note chronologically right before it
+        // messageBuffer is newest-first: the first user role found is the latest user message
         const latestUser = messageBuffer.findIndex((item) => item.role === completionFeats.userRole)
-        const insertAt = latestUser !== -1 ? latestUser + 1 : lastMessageIncluded ? 1 : 0
-        messageBuffer.splice(insertAt, 0, {
-            role: completionFeats.systemRole,
-            [completionFeats.contentName]: postHistory.text,
-        })
+        if (instruct.note_in_user_message && latestUser !== -1) {
+            // templates such as Gemma reject a system message mid-chat, so the note is
+            // prepended to the latest user message instead
+            const target = messageBuffer[latestUser]
+            const content = target[completionFeats.contentName]
+            if (typeof content === 'string') {
+                target[completionFeats.contentName] = `${postHistory.text}\n\n${content}`
+            } else if (Array.isArray(content)) {
+                const textPart = content.find((part) => 'text' in part)
+                if (textPart && 'text' in textPart) {
+                    textPart.text = `${postHistory.text}\n\n${textPart.text}`
+                } else {
+                    content.unshift({ type: 'text', text: postHistory.text })
+                }
+            }
+        } else {
+            // inserting after the latest user message puts the note chronologically before it
+            const insertAt = latestUser !== -1 ? latestUser + 1 : lastMessageIncluded ? 1 : 0
+            messageBuffer.splice(insertAt, 0, {
+                role: completionFeats.systemRole,
+                [completionFeats.contentName]: postHistory.text,
+            })
+        }
     }
 
     const examples = character?.mes_example
@@ -320,13 +337,16 @@ export const buildTextCompletionContext = async ({
         preset,
     })
     let note_shard = ''
-    if (postHistory.text) {
+    const noteInUserMessage = instruct.note_in_user_message && postHistory.text.length > 0
+    if (postHistory.text && !noteInUserMessage) {
         note_shard = instruct.system_prefix + postHistory.text + instruct.system_suffix
         if (instruct.wrap) note_shard += '\n'
         payloadLength +=
             postHistory.length +
             instructCache.system_prefix_length +
             instructCache.system_suffix_length
+    } else if (noteInUserMessage) {
+        payloadLength += postHistory.length
     }
 
     // suffix must be delayed for example messages
@@ -394,6 +414,11 @@ export const buildTextCompletionContext = async ({
         if (instruct.timestamp) message_shard += timestamp_string
 
         if (instruct.names) message_shard += name_string
+
+        // note merged into the latest user message when the template needs it
+        if (noteInUserMessage && message.is_user && !seen_user) {
+            message_shard += postHistory.text + '\n\n'
+        }
 
         message_shard += swipe_data.swipe
 

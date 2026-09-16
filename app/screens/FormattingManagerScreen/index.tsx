@@ -485,6 +485,16 @@ const FormattingManager = () => {
                                 }}
                             />
                             <ThemedCheckbox
+                                label="Rules In User Message"
+                                value={currentInstruct.note_in_user_message}
+                                onChangeValue={(b) => {
+                                    setCurrentInstruct({
+                                        ...currentInstruct,
+                                        note_in_user_message: b,
+                                    })
+                                }}
+                            />
+                            <ThemedCheckbox
                                 label="Use Post-History Rules"
                                 value={currentInstruct.use_post_history}
                                 onChangeValue={(b) => {
@@ -499,7 +509,9 @@ const FormattingManager = () => {
                     <Text style={{ color: color.text._500, fontSize: 12, marginTop: 4 }}>
                         Card System Prompt replaces the System Prompt above when a character defines
                         one ({'{{original}}'} inserts it). Post-History Rules and Chat Memory are
-                        sent after the chat history so the model follows them closely.
+                        sent after the chat history so the model follows them closely. Enable Rules
+                        In User Message for models whose template rejects a system message mid-chat
+                        (Gemma).
                     </Text>
 
                     <SectionTitle>Attachments</SectionTitle>

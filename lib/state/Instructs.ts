@@ -35,6 +35,7 @@ const defaultGenerics = {
     use_card_system_prompt: true,
     use_post_history: true,
     label_sections: true,
+    note_in_user_message: false,
 }
 
 /**
@@ -333,7 +334,7 @@ export namespace Instructs {
                 name: Storage.Instruct,
                 storage: createMMKVStorage(),
                 partialize: (state) => ({ data: state.data }),
-                version: 9,
+                version: 10,
                 migrate: async (persistedState: any, version) => {
                     if (!version) {
                         persistedState.data.timestamp = false
@@ -389,6 +390,10 @@ export namespace Instructs {
 
                     if (version === 8) {
                         persistedState.data.label_sections = true
+                    }
+
+                    if (version === 9) {
+                        persistedState.data.note_in_user_message = false
                     }
 
                     return persistedState

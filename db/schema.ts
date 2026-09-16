@@ -300,6 +300,13 @@ export const instructs = sqliteTable('instructs', {
     // additions 16/9/2026 v9
     // label the character / user sections so small models do not merge the two identities
     label_sections: integer('label_sections', { mode: 'boolean' }).notNull().default(true),
+
+    // additions 16/9/2026 v10
+    // send rules + memory inside the latest user message instead of as a system message,
+    // for templates (Gemma) that reject a system message mid-conversation
+    note_in_user_message: integer('note_in_user_message', { mode: 'boolean' })
+        .notNull()
+        .default(false),
 })
 
 // LOREBOOKS
