@@ -39,13 +39,14 @@ export const localSamplerData: APISampler[] = [
     { externalName: 'penalty_present', samplerID: SamplerID.PRESENCE_PENALTY },
     { externalName: 'enable_thinking', samplerID: SamplerID.ENABLE_THINKING },
     { externalName: 'penalty_freq', samplerID: SamplerID.FREQUENCY_PENALTY },
-    { externalName: 'xtc_t', samplerID: SamplerID.XTC_THRESHOLD },
-    { externalName: 'xtc_p', samplerID: SamplerID.XTC_PROBABILITY },
+    { externalName: 'xtc_threshold', samplerID: SamplerID.XTC_THRESHOLD },
+    { externalName: 'xtc_probability', samplerID: SamplerID.XTC_PROBABILITY },
     { externalName: 'seed', samplerID: SamplerID.SEED },
     { externalName: 'dry_base', samplerID: SamplerID.DRY_BASE },
     { externalName: 'dry_allowed_length', samplerID: SamplerID.DRY_ALLOWED_LENGTH },
     { externalName: 'dry_multiplier', samplerID: SamplerID.DRY_MULTIPLIER },
     { externalName: 'dry_sequence_breakers', samplerID: SamplerID.DRY_SEQUENCE_BREAK },
+    { externalName: 'dry_penalty_last_n', samplerID: SamplerID.DRY_PENALTY_LAST_N },
     { externalName: 'thinking_budget_tokens', samplerID: SamplerID.REASONING_MAX_TOKENS },
 ]
 
