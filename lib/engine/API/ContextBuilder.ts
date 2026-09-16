@@ -161,12 +161,18 @@ export const buildChatCompletionContext = async ({
 
         const name_string = instruct.names ? `${message.name}: ` : ''
         const name_length = instruct.names ? await tokenizer(name_string) : 0
-        const { attachments, hasImageNew } = getValidAttachments(
+        // attachments beyond the depth are dropped so an old image is not re-encoded
+        // on every turn; the text history still mentions that one was there
+        const withinDepth =
+            instruct.attachment_depth <= 0 || index >= messages.length - instruct.attachment_depth
+        const { attachments, hasImageNew, omitted } = getValidAttachments(
             message,
             completionFeats,
             instruct,
-            hasImage
+            hasImage,
+            withinDepth
         )
+        const omittedNote = omitted > 0 ? ` [${omitted} image(s) attached earlier]` : ''
 
         const swipe_len = message.id !== -1 ? await chatTokenizer(message, index) : 0
         const len = swipe_len + name_length + timestamp_length
@@ -182,9 +188,7 @@ export const buildChatCompletionContext = async ({
         }
         const role = message.is_user ? completionFeats.userRole : completionFeats.assistantRole
 
-        if (message.attachments.length > 0) {
-            Logger.warn('Image output is incomplete')
-
+        if (attachments.length > 0) {
             const images: ContentTypes[] = await Promise.all(
                 attachments.map(async (item) => {
                     const base64data = await readBase64Async(item.uri)
@@ -222,7 +226,7 @@ export const buildChatCompletionContext = async ({
             messageBuffer.push({
                 role: role,
                 [completionFeats.contentName]: replaceMacrosInternal(
-                    name_string + prefill + swipe_data.swipe,
+                    name_string + prefill + swipe_data.swipe + omittedNote,
                     instruct
                 ),
             })
@@ -553,16 +557,21 @@ const getValidAttachments = (
         supportsImages?: boolean
     },
     instruct: InstructType,
-    hasImage: boolean
+    hasImage: boolean,
+    withinDepth: boolean = true
 ) => {
     let hasImageNew = hasImage
+    const images = entry.attachments.filter((item) => item.type === 'image')
+    if (!withinDepth) {
+        // too old to send, but the model should know an image was here
+        return { hasImageNew: hasImageNew, attachments: [], omitted: images.length }
+    }
     const audioAttachments = entry.attachments.filter(
         (item) => item.type === 'audio' && instruct.send_audio && config.supportsAudio
     )
 
     let imageAttachments: typeof entry.attachments = []
     if (instruct.send_images && config.supportsImages) {
-        const images = entry.attachments.filter((item) => item.type === 'image')
         if (instruct.last_image_only && images.length > 0) {
             if (!hasImageNew) {
                 hasImageNew = true
@@ -573,7 +582,7 @@ const getValidAttachments = (
         }
     }
     const attachments = [...audioAttachments, ...imageAttachments]
-    return { hasImageNew, attachments }
+    return { hasImageNew: hasImageNew, attachments: attachments, omitted: 0 }
 }
 
 export const getSystemPrompt = ({

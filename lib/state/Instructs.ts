@@ -36,6 +36,7 @@ const defaultGenerics = {
     use_post_history: true,
     label_sections: true,
     note_in_user_message: false,
+    attachment_depth: 2,
 }
 
 /**
@@ -334,7 +335,7 @@ export namespace Instructs {
                 name: Storage.Instruct,
                 storage: createMMKVStorage(),
                 partialize: (state) => ({ data: state.data }),
-                version: 10,
+                version: 11,
                 migrate: async (persistedState: any, version) => {
                     if (!version) {
                         persistedState.data.timestamp = false
@@ -394,6 +395,10 @@ export namespace Instructs {
 
                     if (version === 9) {
                         persistedState.data.note_in_user_message = false
+                    }
+
+                    if (version === 10) {
+                        persistedState.data.attachment_depth = 2
                     }
 
                     return persistedState

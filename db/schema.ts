@@ -307,6 +307,10 @@ export const instructs = sqliteTable('instructs', {
     note_in_user_message: integer('note_in_user_message', { mode: 'boolean' })
         .notNull()
         .default(false),
+
+    // additions 16/9/2026 v11
+    // attachments are only sent from the last N messages; 0 sends them from any message
+    attachment_depth: integer('attachment_depth').notNull().default(2),
 })
 
 // LOREBOOKS

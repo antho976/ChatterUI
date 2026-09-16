@@ -11,6 +11,7 @@ import ThemedButton from '@components/buttons/ThemedButton'
 import DropdownSheet from '@components/input/DropdownSheet'
 import StringArrayEditor from '@components/input/StringArrayEditor'
 import ThemedCheckbox from '@components/input/ThemedCheckbox'
+import ThemedSlider from '@components/input/ThemedSlider'
 import ThemedSwitch from '@components/input/ThemedSwitch'
 import ThemedTextInput from '@components/input/ThemedTextInput'
 import SectionTitle from '@components/text/SectionTitle'
@@ -567,6 +568,25 @@ const FormattingManager = () => {
                             />
                         </View>
                     </View>
+                    <ThemedSlider
+                        label="Attachment Depth"
+                        value={currentInstruct.attachment_depth}
+                        onValueChange={(value) => {
+                            setCurrentInstruct({
+                                ...currentInstruct,
+                                attachment_depth: value,
+                            })
+                        }}
+                        min={0}
+                        max={20}
+                        step={1}
+                        precision={0}
+                    />
+                    <Text style={{ color: color.text._500, fontSize: 12 }}>
+                        Images and audio are only sent from the last N messages, so an old picture
+                        is not re-read on every turn. Older messages keep a short note that an image
+                        was attached. 0 sends attachments from any message.
+                    </Text>
 
                     <View style={{ rowGap: 8 }}>
                         <SectionTitle>Text Formatter</SectionTitle>
