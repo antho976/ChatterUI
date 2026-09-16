@@ -61,8 +61,13 @@ const getSamplerFields = (max_length?: number) => {
                     cleanvalue = Math.min(value, max_length)
                 } else if (samplerItem.values.type === 'integer') cleanvalue = Math.floor(value)
             if (item.samplerID === SamplerID.DRY_SEQUENCE_BREAK) {
+                // "\\n" typed in the UI means a newline; empty entries would wipe the
+                // engine's default breakers with nothing
                 //@ts-expect-error. This is due to a migration
-                cleanvalue = (value as string).split(',')
+                cleanvalue = (value as string)
+                    .split(',')
+                    .map((item) => item.replaceAll('\\n', '\n'))
+                    .filter((item) => item.length > 0)
             }
             return { [item.externalName as SamplerID]: cleanvalue }
         })

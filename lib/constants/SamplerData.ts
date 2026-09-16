@@ -754,7 +754,7 @@ export const Samplers = {
         macro: '{{dry_break}}',
         values: {
             type: 'string',
-            default: '',
+            default: '\\n,:,",*',
         },
     },
     [SamplerID.DRY_PENALTY_LAST_N]: {
