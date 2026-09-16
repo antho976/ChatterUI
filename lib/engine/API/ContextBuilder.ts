@@ -102,7 +102,7 @@ export const buildChatCompletionContext = async ({
     let hasImage = false
     const messageBuffer: Message[] = []
     let index = messages.length - 1
-    for (const message of messages.reverse()) {
+    for (const message of [...messages].reverse()) {
         const swipe_data = message.swipes[message.swipe_id]
         // special case for claude, prefill may be useful!
         const timestamp_string = `[${swipe_data.send_date.toString().split(' ')[0]} ${swipe_data.send_date.toLocaleTimeString()}]\n`
@@ -252,7 +252,7 @@ export const buildTextCompletionContext = async ({
     let first_message_reached = false
 
     // we require lengths for names if use_names is enabled
-    for (const message of messages.reverse()) {
+    for (const message of [...messages].reverse()) {
         const swipe_len = await chatTokenizer(message, index)
         const swipe_data = message.swipes[message.swipe_id]
 
