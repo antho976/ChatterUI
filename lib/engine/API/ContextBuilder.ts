@@ -235,6 +235,8 @@ export const buildChatCompletionContext = async ({
 
     if (index >= messages.length - 1 && messages.length !== 0) {
         warnNoMessages()
+    } else {
+        warnTruncated(index + 1, messages.length, total_length, maxLength)
     }
 
     if (postHistory.text) {
@@ -418,6 +420,8 @@ export const buildTextCompletionContext = async ({
 
     if (index >= messages.length - 1 && messages.length !== 0) {
         warnNoMessages()
+    } else {
+        warnTruncated(index + 1, messages.length, message_acc_length + payloadLength, maxLength)
     }
 
     const examples = character?.mes_example
@@ -674,6 +678,21 @@ export const getSystemPrompt = ({
         systemPromptLength += m.length
     })
     return { systemPrompt, systemPromptLength }
+}
+
+/**
+ * Logs how much history was dropped, and toasts when almost nothing fits so the
+ * user learns why the model has "forgotten" the conversation.
+ */
+const warnTruncated = (dropped: number, total: number, used: number, maxLength: number) => {
+    if (dropped <= 0) return
+    const kept = total - dropped
+    Logger.warn(
+        `Context full: ${dropped} of ${total} messages dropped (${used}/${maxLength} tokens). Raise the context length or shorten the card.`
+    )
+    if (kept <= 2) {
+        Logger.warnToast(`Context full: only ${kept} message(s) sent. Check Logs.`)
+    }
 }
 
 const warnNoMessages = () => {

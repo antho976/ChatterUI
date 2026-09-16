@@ -27,7 +27,9 @@ export function buildThinkRules() {
         }
         const closeSource = escapeRegex(tag.close)
         return {
-            macro: new RegExp(`${openSource}[\\s\\S]*?${closeSource}`, 'g'),
+            // a block without a closing tag (generation cut off mid-thought) is removed to
+            // its end, otherwise it would be replayed as part of the reply
+            macro: new RegExp(`${openSource}[\\s\\S]*?(?:${closeSource}|$)`, 'g'),
             value: '',
         }
     })
