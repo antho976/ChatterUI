@@ -526,7 +526,7 @@ export const getSystemPrompt = ({
         {
             macro: '{{system_prompt}}',
             value: instruct.system_prompt ?? '',
-            length: instructCache.system_suffix_length,
+            length: instructCache.system_prompt_length,
         },
         {
             macro: '{{character_desc}}',
