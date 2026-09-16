@@ -302,10 +302,12 @@ export namespace Instructs {
                     const sequence: string[] = []
                     let extras: string[] = []
                     if (instruct.names) {
-                        const userName = Characters.useCharacterStore.getState().card?.name
-                        const charName = Characters.useCharacterStore.getState()?.card?.name
-                        if (userName) sequence.push(`${userName} :`)
-                        if (charName) sequence.push(`${charName} :`)
+                        const userName = Characters.useUserStore.getState().card?.name
+                        const charName = Characters.useCharacterStore.getState().card?.name
+                        // the context builder writes "Name: " at the start of each message;
+                        // the leading newline keeps a reply that opens with the name intact
+                        if (userName) sequence.push(`\n${userName}:`)
+                        if (charName) sequence.push(`\n${charName}:`)
                     }
 
                     if (instruct.stop_sequence !== '')
