@@ -141,6 +141,13 @@
       "when": 1789533778164,
       "tag": "0019_rich_sebastian_shaw",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "6",
+      "when": 1789538605357,
+      "tag": "0020_nice_miracleman",
+      "breakpoints": true
     }
   ]
 }

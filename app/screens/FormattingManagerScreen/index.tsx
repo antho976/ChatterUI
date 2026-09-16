@@ -475,6 +475,16 @@ const FormattingManager = () => {
                                 }}
                             />
                             <ThemedCheckbox
+                                label="Label Card Sections"
+                                value={currentInstruct.label_sections}
+                                onChangeValue={(b) => {
+                                    setCurrentInstruct({
+                                        ...currentInstruct,
+                                        label_sections: b,
+                                    })
+                                }}
+                            />
+                            <ThemedCheckbox
                                 label="Use Post-History Rules"
                                 value={currentInstruct.use_post_history}
                                 onChangeValue={(b) => {

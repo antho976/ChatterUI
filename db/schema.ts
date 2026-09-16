@@ -296,6 +296,10 @@ export const instructs = sqliteTable('instructs', {
         .notNull()
         .default(true),
     use_post_history: integer('use_post_history', { mode: 'boolean' }).notNull().default(true),
+
+    // additions 16/9/2026 v9
+    // label the character / user sections so small models do not merge the two identities
+    label_sections: integer('label_sections', { mode: 'boolean' }).notNull().default(true),
 })
 
 // LOREBOOKS

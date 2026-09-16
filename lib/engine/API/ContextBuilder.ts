@@ -157,7 +157,7 @@ export const buildChatCompletionContext = async ({
         const timestamp_string = `[${swipe_data.send_date.toString().split(' ')[0]} ${swipe_data.send_date.toLocaleTimeString()}]\n`
         const timestamp_length = instruct.timestamp ? await tokenizer(timestamp_string) : 0
 
-        const name_string = `${message.name} :`
+        const name_string = instruct.names ? `${message.name}: ` : ''
         const name_length = instruct.names ? await tokenizer(name_string) : 0
         const { attachments, hasImageNew } = getValidAttachments(
             message,
@@ -208,7 +208,10 @@ export const buildChatCompletionContext = async ({
                 [completionFeats.contentName]: [
                     {
                         type: 'text',
-                        text: replaceMacrosInternal(prefill + swipe_data.swipe, instruct),
+                        text: replaceMacrosInternal(
+                            name_string + prefill + swipe_data.swipe,
+                            instruct
+                        ),
                     },
                     ...images,
                 ],
@@ -217,7 +220,7 @@ export const buildChatCompletionContext = async ({
             messageBuffer.push({
                 role: role,
                 [completionFeats.contentName]: replaceMacrosInternal(
-                    prefill + swipe_data.swipe,
+                    name_string + prefill + swipe_data.swipe,
                     instruct
                 ),
             })
@@ -579,6 +582,34 @@ export const getSystemPrompt = ({
         ? preset.persona.length
         : userCache.description_length
 
+    // Labels keep the two identities apart. Small models otherwise read the user's
+    // description as part of the character. Empty sections get no label.
+    const LABEL_LENGTH = 12
+    const labelled = (title: string, text: string, length: number) => {
+        if (!instruct.label_sections || !text.trim()) return { text, length }
+        return { text: `${title}\n${text}`, length: length + LABEL_LENGTH }
+    }
+    const characterDesc = labelled(
+        '[About {{char}}]',
+        character?.description ?? '',
+        characterCache.description_length
+    )
+    const personality = labelled(
+        "[{{char}}'s personality]",
+        instruct.personality ? (character?.personality ?? '') : '',
+        instruct.personality ? characterCache.personality_length : 0
+    )
+    const scenario = labelled(
+        '[Scenario]',
+        instruct.scenario ? (character?.scenario ?? '') : '',
+        instruct.scenario ? characterCache.scenario_length : 0
+    )
+    const userDesc = labelled(
+        '[About {{user}}, the person {{char}} is talking to. {{user}} is not {{char}}.]',
+        finalUserDesc,
+        finalUserDescLength
+    )
+
     const macros = [
         {
             macro: '{{system_prefix}}',
@@ -597,23 +628,23 @@ export const getSystemPrompt = ({
         },
         {
             macro: '{{character_desc}}',
-            value: character?.description ?? '',
-            length: characterCache.description_length,
+            value: characterDesc.text,
+            length: characterDesc.length,
         },
         {
             macro: '{{user_desc}}',
-            value: finalUserDesc,
-            length: finalUserDescLength,
+            value: userDesc.text,
+            length: userDesc.length,
         },
         {
             macro: '{{personality}}',
-            value: instruct.personality ? (character?.personality ?? '') : '',
-            length: instruct.personality ? characterCache.personality_length : 0,
+            value: personality.text,
+            length: personality.length,
         },
         {
             macro: '{{scenario}}',
-            value: instruct.scenario ? (character?.scenario ?? '') : '',
-            length: instruct.scenario ? characterCache.scenario_length : 0,
+            value: scenario.text,
+            length: scenario.length,
         },
     ]
     macros.forEach((m) => {
