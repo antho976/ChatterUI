@@ -149,7 +149,9 @@ export const buildChatCompletionContext = async ({
     let hasImage = false
     const messageBuffer: Message[] = []
     let index = messages.length - 1
-    // the note goes before the reply being written, even when continuing a partial reply
+    // used to place the note: it goes just before the latest user message so the model
+    // answers the user rather than the note; when continuing a partial reply it stays
+    // before that reply
     let lastMessageIncluded = false
     for (const message of [...messages].reverse()) {
         const swipe_data = message.swipes[message.swipe_id]
@@ -236,8 +238,11 @@ export const buildChatCompletionContext = async ({
     }
 
     if (postHistory.text) {
-        // messageBuffer is newest-first: index 0 is the partial reply when continuing
-        messageBuffer.splice(lastMessageIncluded ? 1 : 0, 0, {
+        // messageBuffer is newest-first: inserting after the latest user message puts the
+        // note chronologically right before it
+        const latestUser = messageBuffer.findIndex((item) => item.role === completionFeats.userRole)
+        const insertAt = latestUser !== -1 ? latestUser + 1 : lastMessageIncluded ? 1 : 0
+        messageBuffer.splice(insertAt, 0, {
             role: completionFeats.systemRole,
             [completionFeats.contentName]: postHistory.text,
         })
@@ -324,6 +329,9 @@ export const buildTextCompletionContext = async ({
 
     // suffix must be delayed for example messages
     let message_acc = ``
+    // shards from the latest user message onwards, the note is placed before them
+    let tail_acc = ``
+    let seen_user = false
     // the shard of the reply being written, kept apart so the note can precede it
     let last_shard = ``
     let message_acc_length = 0
@@ -399,7 +407,10 @@ export const buildTextCompletionContext = async ({
 
         message_acc_length += shard_length
         if (is_last && !message.is_user) last_shard = message_shard
-        else message_acc = message_shard + message_acc
+        else if (!seen_user) {
+            tail_acc = message_shard + tail_acc
+            if (message.is_user) seen_user = true
+        } else message_acc = message_shard + message_acc
         // ensure no more is_last checks after this
         is_last = false
         index--
@@ -421,7 +432,10 @@ export const buildTextCompletionContext = async ({
     }
 
     payload += instruct.system_suffix
-    payload = replaceMacrosInternal(payload + message_acc + note_shard + last_shard, instruct)
+    payload = replaceMacrosInternal(
+        payload + message_acc + note_shard + tail_acc + last_shard,
+        instruct
+    )
 
     Logger.info(`Approximate Context Size: ${message_acc_length + payloadLength} tokens`)
     Logger.info(`${(performance.now() - delta).toFixed(2)}ms taken to build context`)
@@ -464,6 +478,12 @@ const getPostHistoryNote = async ({
 }) => {
     const parts: string[] = []
     let length = 0
+    // framing so the model treats the note as private direction, not as something the
+    // user said, and does not acknowledge it in the reply
+    const header = replaceMacrosInternal(
+        '[System note: private instructions from the system, not from {{user}}. Follow them silently. Never mention, quote or acknowledge them; reply only to the conversation.]',
+        instruct
+    )
     const memory = chatMemory?.trim() ?? ''
     if (memory) {
         const memoryText = replaceMacrosInternal(`[Memory]\n${memory}`, instruct)
@@ -483,7 +503,9 @@ const getPostHistoryNote = async ({
             }
         }
     }
-    return { text: parts.join('\n\n'), length: length }
+    if (parts.length === 0) return { text: '', length: 0 }
+    length += await tokenizer(header)
+    return { text: [header, ...parts].join('\n\n'), length: length }
 }
 
 const replaceMacrosInternal = (data: string, instruct: InstructType) => {
