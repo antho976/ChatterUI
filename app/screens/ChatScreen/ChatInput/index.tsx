@@ -3,7 +3,7 @@ import { randomUUID } from 'expo-crypto'
 import { getDocumentAsync } from 'expo-document-picker'
 import { Image } from 'expo-image'
 import React, { useState } from 'react'
-import { TextInput, TouchableOpacity, View } from 'react-native'
+import { Text, TextInput, TouchableOpacity, View } from 'react-native'
 import { useMMKVBoolean } from 'react-native-mmkv'
 import Animated, {
     BounceIn,
@@ -20,7 +20,7 @@ import CameraSheet from '@components/views/CameraSheet'
 import ContextMenu from '@components/views/ContextMenu'
 import { XAxisOnlyTransition } from '@lib/animations/transitions'
 import { AppSettings } from '@lib/constants/GlobalValues'
-import { generateResponse } from '@lib/engine/Inference'
+import { continueResponse, generateResponse } from '@lib/engine/Inference'
 import { useUnfocusTextInput } from '@lib/hooks/UnfocusTextInput'
 import { Characters } from '@lib/state/Characters'
 import { Chats, useInference } from '@lib/state/Chat'
@@ -57,6 +57,7 @@ const ChatInput = () => {
     const [hideOptions, setHideOptions] = useState(false)
     const [showCamera, setShowCamera] = useState(false)
     const { addEntry } = Chats.useEntry()
+    const isGhost = Chats.useChatState(useShallow((state) => state.data?.ghost ?? false))
     const { nowGenerating, abortFunction } = useInference(
         useShallow((state) => ({
             nowGenerating: state.nowGenerating,
@@ -99,6 +100,39 @@ const ChatInput = () => {
         setNewMessage('')
         setAttachments([])
         if (swipeId) generateResponse(swipeId)
+    }
+
+    /**
+     * Lets the character speak next without the user typing anything.
+     * An empty trailing reply (e.g. a failed generation) is regenerated instead.
+     */
+    const handleContinueChat = async () => {
+        if (nowGenerating) return
+        const messages = Chats.useChatState.getState().data?.messages
+        const last = messages?.at(-1)
+        if (!last) return
+        const lastSwipe = last.swipes[last.swipe_id]
+        if (!last.is_user && lastSwipe && lastSwipe.swipe.trim() === '') {
+            generateResponse(lastSwipe.id)
+            return
+        }
+        const swipeId = await addEntry(charName ?? '', false, '')
+        if (swipeId) generateResponse(swipeId)
+    }
+
+    /**
+     * Extends the last character reply instead of starting a new one.
+     */
+    const handleContinueLastMessage = async () => {
+        if (nowGenerating) return
+        const messages = Chats.useChatState.getState().data?.messages
+        const last = messages?.at(-1)
+        if (!last || last.is_user) {
+            Logger.infoToast('Last message is not from the character')
+            return
+        }
+        const lastSwipe = last.swipes[last.swipe_id]
+        if (lastSwipe) continueResponse(lastSwipe.id)
     }
 
     const handlePickImage = async () => {
@@ -196,6 +230,26 @@ const ChatInput = () => {
                     )
                 }}
             />
+            {isGhost && (
+                <Animated.View
+                    entering={FadeIn}
+                    exiting={FadeOut}
+                    style={{
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        columnGap: 8,
+                        alignSelf: 'center',
+                        paddingHorizontal: spacing.l,
+                        paddingVertical: spacing.s,
+                        borderRadius: borderRadius.m,
+                        backgroundColor: color.neutral._200,
+                    }}>
+                    <MaterialIcons name="visibility-off" size={16} color={color.text._400} />
+                    <Text style={{ color: color.text._400, fontSize: 12 }}>
+                        Ghost chat: erased permanently when you leave
+                    </Text>
+                </Animated.View>
+            )}
             <CameraSheet
                 onTakePicture={(picture) => {
                     setAttachments((attachments) => [
@@ -305,6 +359,21 @@ const ChatInput = () => {
                     submitBehavior={sendOnEnter ? 'blurAndSubmit' : 'newline'}
                     onSubmitEditing={sendOnEnter ? handleSend : undefined}
                 />
+                {!newMessage && !nowGenerating && (
+                    <Animated.View layout={XAxisOnlyTransition} entering={FadeIn} exiting={FadeOut}>
+                        <TouchableOpacity
+                            style={{
+                                borderRadius: borderRadius.m,
+                                backgroundColor: color.neutral._200,
+                                padding: spacing.m,
+                            }}
+                            onPress={handleContinueChat}
+                            onLongPress={handleContinueLastMessage}
+                            delayLongPress={400}>
+                            <MaterialIcons name="fast-forward" color={color.text._300} size={24} />
+                        </TouchableOpacity>
+                    </Animated.View>
+                )}
                 <Animated.View layout={XAxisOnlyTransition}>
                     <TouchableOpacity
                         style={{

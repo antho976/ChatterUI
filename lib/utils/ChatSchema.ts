@@ -51,6 +51,11 @@ export const ChatImportSchema = z.object({
     create_date: z.coerce.date(),
     user_id: z.number().nullable(),
     scroll_offset: z.number(),
+    hidden: z.boolean().catch(false),
+    ghost: z.boolean().catch(false),
+    memory: z.string().catch(''),
+    background_image: z.number().nullable().catch(null),
+    active_preset_id: z.number().nullable().catch(null),
     messages: z.array(MessageSchema),
 })
 

@@ -79,6 +79,11 @@ const ChatScreen = () => {
         const chat = result.data
         chat.character_id = charId
         chat.scroll_offset = 0
+        // an imported chat is always meant to be kept
+        chat.ghost = false
+        // background files and presets do not travel with an export
+        chat.background_image = null
+        chat.active_preset_id = null
         delete chat.id
         chat.messages = chat.messages.map((message) => {
             delete message.id

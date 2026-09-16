@@ -108,11 +108,6 @@ const getPaths = (remote: boolean): ButtonData[] => [
         icon: 'code',
     },
     {
-        name: 'About',
-        path: '/screens/AboutScreen',
-        icon: 'info-circle',
-    },
-    {
         name: 'Settings',
         path: '/screens/AppSettingsScreen',
         icon: 'setting',

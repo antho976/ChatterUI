@@ -464,8 +464,33 @@ const FormattingManager = () => {
                                     })
                                 }}
                             />
+                            <ThemedCheckbox
+                                label="Use Card System Prompt"
+                                value={currentInstruct.use_card_system_prompt}
+                                onChangeValue={(b) => {
+                                    setCurrentInstruct({
+                                        ...currentInstruct,
+                                        use_card_system_prompt: b,
+                                    })
+                                }}
+                            />
+                            <ThemedCheckbox
+                                label="Use Post-History Rules"
+                                value={currentInstruct.use_post_history}
+                                onChangeValue={(b) => {
+                                    setCurrentInstruct({
+                                        ...currentInstruct,
+                                        use_post_history: b,
+                                    })
+                                }}
+                            />
                         </View>
                     </View>
+                    <Text style={{ color: color.text._500, fontSize: 12, marginTop: 4 }}>
+                        Card System Prompt replaces the System Prompt above when a character defines
+                        one ({'{{original}}'} inserts it). Post-History Rules and Chat Memory are
+                        sent after the chat history so the model follows them closely.
+                    </Text>
 
                     <SectionTitle>Attachments</SectionTitle>
 

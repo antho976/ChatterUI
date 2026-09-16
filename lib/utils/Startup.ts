@@ -206,6 +206,16 @@ const setDefaultUser = async () => {
     }
 }
 
+const purgeGhostChats = async () => {
+    // ghost chats left behind by a closed app are erased here
+    try {
+        const count = await Chats.db.mutate.purgeGhostChats()
+        if (count > 0) Logger.info(`Erased ${count} leftover ghost chat(s)`)
+    } catch (e) {
+        Logger.error(`Failed to purge ghost chats: ${e}`)
+    }
+}
+
 const setKeepAwake = async () => {
     const keepAwake = mmkv.getBoolean(AppSettings.KeepAwake)
     if (keepAwake) KeepAwake.activateKeepAwakeAsync()
@@ -254,6 +264,9 @@ export const startupApp = () => {
 
     // Initialize the default card
     createDefaultCard()
+
+    // ghost chats never survive a restart
+    purgeGhostChats()
 
     // get fp16, i8mm and dotprod data
     setCPUFeatures()

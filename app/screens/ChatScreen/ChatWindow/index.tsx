@@ -41,6 +41,8 @@ const ChatWindow = () => {
         Characters.db.query.backgroundImageQuery(charId ?? -1)
     )
     const { cause: scrollCause, index: scrollIndex } = chat?.autoScroll ?? {}
+    // a chat background takes priority over the character and app backgrounds
+    const chatBackground = chat?.background_image
     const flatlistRef = useRef<FlatList | null>(null)
     const { showSettings, showChat } = Drawer.useDrawerStore(
         useShallow((state) => ({
@@ -95,11 +97,13 @@ const ChatWindow = () => {
             cachePolicy="none"
             style={{ flex: 1 }}
             source={{
-                uri: backgroundImage
-                    ? Characters.getImageDir(backgroundImage)
-                    : image
-                      ? AppDirectory.Assets + image
-                      : '',
+                uri: chatBackground
+                    ? Characters.getImageDir(chatBackground)
+                    : backgroundImage
+                      ? Characters.getImageDir(backgroundImage)
+                      : image
+                        ? AppDirectory.Assets + image
+                        : '',
             }}>
             {showModelname && appMode === 'local' && (
                 <HeaderTitle headerTitle={() => !showSettings && !showChat && <ChatModelName />} />
