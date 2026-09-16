@@ -56,6 +56,8 @@ export type CharacterTokenCache = {
     examples_length: number
     personality_length: number
     scenario_length: number
+    system_prompt_length: number
+    post_history_length: number
 }
 
 type CharacterCardState = {
@@ -132,11 +134,15 @@ export namespace Characters {
                             examples_length: 0,
                             personality_length: 0,
                             scenario_length: 0,
+                            system_prompt_length: 0,
+                            post_history_length: 0,
                         }
                     const description = replaceMacros(card.description)
                     const examples = replaceMacros(card.mes_example)
                     const personality = replaceMacros(card.personality)
                     const scenario = replaceMacros(card.scenario)
+                    const systemPrompt = replaceMacros(card.system_prompt)
+                    const postHistory = replaceMacros(card.post_history_instructions)
 
                     const getTokenCount = Tokenizer.getTokenizer()
 
@@ -146,6 +152,8 @@ export namespace Characters {
                         examples_length: await getTokenCount(examples),
                         personality_length: await getTokenCount(personality),
                         scenario_length: await getTokenCount(scenario),
+                        system_prompt_length: await getTokenCount(systemPrompt),
+                        post_history_length: await getTokenCount(postHistory),
                     }
 
                     set({ tokenCache: newCache })
@@ -220,20 +228,26 @@ export namespace Characters {
                     examples_length: 0,
                     personality_length: 0,
                     scenario_length: 0,
+                    system_prompt_length: 0,
+                    post_history_length: 0,
                 }
             const description = replaceMacros(card.description)
             const examples = replaceMacros(card.mes_example)
             const personality = replaceMacros(card.personality)
             const scenario = replaceMacros(card.scenario)
+            const systemPrompt = replaceMacros(card.system_prompt)
+            const postHistory = replaceMacros(card.post_history_instructions)
 
             const getTokenCount = Tokenizer.getTokenizer()
 
-            const newCache = {
+            const newCache: CharacterTokenCache = {
                 otherName: charName,
                 description_length: await getTokenCount(description),
                 examples_length: await getTokenCount(examples),
                 personality_length: await getTokenCount(personality),
                 scenario_length: await getTokenCount(scenario),
+                system_prompt_length: await getTokenCount(systemPrompt),
+                post_history_length: await getTokenCount(postHistory),
             }
             set({ tokenCache: newCache })
             return newCache
@@ -518,6 +532,8 @@ export namespace Characters {
                             personality: card.personality,
                             scenario: card.scenario,
                             mes_example: card.mes_example,
+                            system_prompt: card.system_prompt,
+                            post_history_instructions: card.post_history_instructions,
                         })
                         .where(eq(characters.id, cardID))
                     await Promise.all(

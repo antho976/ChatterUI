@@ -119,6 +119,10 @@ export const collectContext = async (params: ContextBuilderParams & { mode: 'cha
 
     let totalLength = systemPromptLength + reservedBudget
 
+    // post-history instructions ride with the latest user message; reserve their tokens
+    const postHistory = getPostHistory(character, characterCache, instruct)
+    totalLength += postHistory.length
+
     let hasImage = false
     let completionState: CompletionState = 'initial_completed'
 
@@ -252,6 +256,14 @@ export const collectContext = async (params: ContextBuilderParams & { mode: 'cha
 
             page++
         }
+    }
+
+    if (postHistory.text) {
+        // contextMessages is newest-first here, so the first user entry is the latest user
+        // message. Prepending to it keeps every chat template valid, unlike a mid-chat
+        // system message.
+        const target = contextMessages.find((item) => item.role === 'user')
+        if (target) target.content = `${postHistory.text}\n\n${target.content}`
     }
 
     const lastMessageReached =
@@ -443,6 +455,22 @@ const getMacroRules = (instruct: InstructType) => {
     return data
 }
 
+/**
+ * The card's post-history instructions, macro-replaced, with their cached token length.
+ */
+const getPostHistory = (
+    character: CharacterCardData | undefined,
+    characterCache: CharacterTokenCache,
+    instruct: InstructType
+) => {
+    const raw = character?.post_history_instructions?.trim() ?? ''
+    if (!raw) return { text: '', length: 0 }
+    return {
+        text: replaceMacrosInternal(raw, instruct),
+        length: characterCache.post_history_length,
+    }
+}
+
 const replaceMacrosInternal = (data: string, instruct: InstructType) => {
     return replaceMacros(data, { extraMacros: getMacroRules(instruct) })
 }
@@ -512,6 +540,18 @@ export const getSystemPrompt = ({
     }
 
     let systemPromptLength = 0
+
+    // a card may carry its own system prompt; {{original}} inserts the instruct's prompt
+    const instructSystemPrompt = instruct.system_prompt ?? ''
+    const cardSystemPrompt = character?.system_prompt?.trim() ?? ''
+    const finalSystemPrompt = cardSystemPrompt
+        ? cardSystemPrompt.replaceAll('{{original}}', instructSystemPrompt)
+        : instructSystemPrompt
+    const finalSystemPromptLength = cardSystemPrompt
+        ? characterCache.system_prompt_length +
+          (cardSystemPrompt.includes('{{original}}') ? instructCache.system_prompt_length : 0)
+        : instructCache.system_prompt_length
+
     const macros = [
         {
             macro: '{{system_prefix}}',
@@ -525,8 +565,8 @@ export const getSystemPrompt = ({
         },
         {
             macro: '{{system_prompt}}',
-            value: instruct.system_prompt ?? '',
-            length: instructCache.system_suffix_length,
+            value: finalSystemPrompt,
+            length: finalSystemPromptLength,
         },
         {
             macro: '{{character_desc}}',

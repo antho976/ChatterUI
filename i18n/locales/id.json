@@ -115,7 +115,11 @@
                 "exampleMessages": "Contoh Pesan",
                 "firstMessage": "Pesan Pertama",
                 "personality": "Kepribadian",
+                "postHistoryInstructions": "Instruksi Pasca-Riwayat",
+                "postHistoryInstructionsDescription": "Dikirim setelah riwayat obrolan, bersama pesan pengguna terbaru, agar model mengikuti instruksi ini dengan cermat.",
                 "scenario": "Skenario",
+                "systemPrompt": "Prompt Sistem",
+                "systemPromptDescription": "Menggantikan Prompt Sistem dari Pemformatan untuk karakter ini. Gunakan {{macro}} untuk menyertakannya. Kosongkan untuk memakai bawaan.",
                 "tags": "Tag"
             },
             "links": {

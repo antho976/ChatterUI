@@ -550,6 +550,40 @@ const ChracterEditorScreen = () => {
                             numberOfLines={16}
                         />
 
+                        <ThemedTextInput
+                            label={t('character.editor.fields.systemPrompt')}
+                            description={t('character.editor.fields.systemPromptDescription', {
+                                macro: '{{original}}',
+                            })}
+                            multiline
+                            containerStyle={styles.input}
+                            onChangeText={(mes) => {
+                                setCharacterCardEdited({
+                                    ...characterCard,
+                                    system_prompt: mes,
+                                })
+                            }}
+                            value={characterCard?.system_prompt}
+                            numberOfLines={6}
+                        />
+
+                        <ThemedTextInput
+                            label={t('character.editor.fields.postHistoryInstructions')}
+                            description={t(
+                                'character.editor.fields.postHistoryInstructionsDescription'
+                            )}
+                            multiline
+                            containerStyle={styles.input}
+                            onChangeText={(mes) => {
+                                setCharacterCardEdited({
+                                    ...characterCard,
+                                    post_history_instructions: mes,
+                                })
+                            }}
+                            value={characterCard?.post_history_instructions}
+                            numberOfLines={8}
+                        />
+
                         <StringArrayEditor
                             label={t('character.editor.fields.tags')}
                             containerStyle={styles.input}

@@ -115,7 +115,11 @@
                 "exampleMessages": "Example Messages",
                 "firstMessage": "First Message",
                 "personality": "Personality",
+                "postHistoryInstructions": "Post-History Instructions",
+                "postHistoryInstructionsDescription": "Sent after the chat history, with the latest user message, so the model follows these instructions closely.",
                 "scenario": "Scenario",
+                "systemPrompt": "System Prompt",
+                "systemPromptDescription": "Replaces the System Prompt from Formatting for this character. Use {{macro}} to include it. Leave blank to use the default.",
                 "tags": "Tags"
             },
             "links": {

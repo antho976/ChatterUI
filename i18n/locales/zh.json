@@ -115,7 +115,11 @@
                 "exampleMessages": "示例消息",
                 "firstMessage": "首条消息",
                 "personality": "个性",
+                "postHistoryInstructions": "历史后指令",
+                "postHistoryInstructionsDescription": "在聊天历史之后随最新的用户消息一起发送，使模型更严格地遵循这些指令。",
                 "scenario": "场景",
+                "systemPrompt": "系统提示",
+                "systemPromptDescription": "替换此角色在“格式化”中的系统提示。使用 {{macro}} 可包含原始提示。留空则使用默认值。",
                 "tags": "标签"
             },
             "links": {
