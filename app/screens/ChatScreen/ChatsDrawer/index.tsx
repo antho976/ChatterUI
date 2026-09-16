@@ -1,7 +1,9 @@
 import { FlashList } from '@shopify/flash-list'
 import { useLiveQuery } from 'drizzle-orm/expo-sqlite'
+import { authenticateAsync } from 'expo-local-authentication'
 import { useState } from 'react'
 import { StyleSheet, Text, View } from 'react-native'
+import { useMMKVBoolean } from 'react-native-mmkv'
 import Animated, { FadeIn, FadeOut } from 'react-native-reanimated'
 import { useShallow } from 'zustand/react/shallow'
 
@@ -9,9 +11,11 @@ import ThemedButton from '@components/buttons/ThemedButton'
 import ThemedTextInput from '@components/input/ThemedTextInput'
 import Drawer from '@components/views/Drawer'
 import { YAxisOnlyTransition } from '@lib/animations/transitions'
+import { AppSettings } from '@lib/constants/GlobalValues'
 import { useDebounce } from '@lib/hooks/Debounce'
 import { Characters } from '@lib/state/Characters'
 import { Chats } from '@lib/state/Chat'
+import { useChatsDrawerStore } from '@lib/state/components/ChatsDrawer'
 import { Logger } from '@lib/state/Logger'
 import { Theme } from '@lib/theme/ThemeManager'
 
@@ -20,8 +24,19 @@ import ChatDrawerSearchItem from './ChatDrawerSearchItem'
 
 const ChatsDrawer = () => {
     const styles = useStyles()
+    const { color } = Theme.useTheme()
     const { charId } = Characters.useCharacterStore(useShallow((state) => ({ charId: state.id })))
-    const { data } = useLiveQuery(Chats.db.query.chatListQuery(charId ?? 0), [charId])
+    const { revealHidden, setRevealHidden } = useChatsDrawerStore(
+        useShallow((state) => ({
+            revealHidden: state.revealHidden,
+            setRevealHidden: state.setRevealHidden,
+        }))
+    )
+    const [lockApp] = useMMKVBoolean(AppSettings.LocallyAuthenticateUser)
+    const { data } = useLiveQuery(Chats.db.query.chatListQuery(charId ?? 0, revealHidden), [
+        charId,
+        revealHidden,
+    ])
     const setShow = Drawer.useDrawerStore((state) => state.setShow)
     const setShowDrawer = (b: boolean) => {
         setShow(Drawer.ID.CHATLIST, b)
@@ -60,11 +75,31 @@ const ChatsDrawer = () => {
         search(query, charId)
     }
 
-    const handleCreateChat = async () => {
+    const handleCreateChat = async (ghost: boolean = false) => {
         if (charId)
-            Chats.db.mutate.createChat(charId).then((chatId) => {
+            Chats.db.mutate.createChat(charId, { ghost }).then((chatId) => {
                 if (chatId) handleLoadChat(chatId)
+                if (chatId && ghost)
+                    Logger.infoToast('Ghost chat started. It is erased when you leave it.')
             })
+    }
+
+    const handleToggleHidden = async () => {
+        if (revealHidden) {
+            setRevealHidden(false)
+            return
+        }
+        // when the app is locked, revealing hidden chats requires the same authentication
+        if (lockApp) {
+            const result = await authenticateAsync({
+                promptMessage: 'Reveal Hidden Chats',
+            })
+            if (!result.success) {
+                Logger.warnToast('Authentication Failed')
+                return
+            }
+        }
+        setRevealHidden(true)
     }
 
     return (
@@ -72,14 +107,26 @@ const ChatsDrawer = () => {
             <View
                 style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 }}>
                 <Text style={styles.drawerTitle}>{showSearchBar ? 'Search' : 'Chats'}</Text>
-                <ThemedButton
-                    variant="tertiary"
-                    iconName={showSearchBar ? 'backward' : 'search'}
-                    onPress={() => {
-                        setShowSearchBar(!showSearchBar)
-                        setShowSearchResults(searchQuery.length > 0 && !showSearchBar)
-                    }}
-                />
+                <View style={{ flexDirection: 'row', columnGap: 4 }}>
+                    {!showSearchBar && (
+                        <ThemedButton
+                            variant="tertiary"
+                            iconName={revealHidden ? 'eye' : 'eye-invisible'}
+                            iconStyle={{
+                                color: revealHidden ? color.text._100 : color.text._700,
+                            }}
+                            onPress={handleToggleHidden}
+                        />
+                    )}
+                    <ThemedButton
+                        variant="tertiary"
+                        iconName={showSearchBar ? 'backward' : 'search'}
+                        onPress={() => {
+                            setShowSearchBar(!showSearchBar)
+                            setShowSearchResults(searchQuery.length > 0 && !showSearchBar)
+                        }}
+                    />
+                </View>
             </View>
             <Animated.View key={showSearchBar + ''} entering={FadeIn} exiting={FadeOut}>
                 {showSearchBar && (
@@ -110,8 +157,22 @@ const ChatsDrawer = () => {
                             removeClippedSubviews={false}
                         />
                     </Animated.View>
-                    <Animated.View entering={FadeIn} exiting={FadeOut}>
-                        <ThemedButton label="Start New Chat" onPress={handleCreateChat} />
+                    <Animated.View
+                        entering={FadeIn}
+                        exiting={FadeOut}
+                        style={{ flexDirection: 'row', columnGap: 8 }}>
+                        <ThemedButton
+                            buttonStyle={{ flex: 1 }}
+                            label="Start New Chat"
+                            onPress={() => handleCreateChat(false)}
+                        />
+                        <ThemedButton
+                            variant="secondary"
+                            iconName="eye-invisible"
+                            iconSize={20}
+                            label="Ghost"
+                            onPress={() => handleCreateChat(true)}
+                        />
                     </Animated.View>
                 </>
             )}

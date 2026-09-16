@@ -42,6 +42,7 @@ export const localSamplerData: APISampler[] = [
     { externalName: 'dry_allowed_length', samplerID: SamplerID.DRY_ALLOWED_LENGTH },
     { externalName: 'dry_multiplier', samplerID: SamplerID.DRY_MULTIPLIER },
     { externalName: 'dry_sequence_breakers', samplerID: SamplerID.DRY_SEQUENCE_BREAK },
+    { externalName: 'dry_penalty_last_n', samplerID: SamplerID.DRY_PENALTY_LAST_N },
 ]
 
 const getSamplerFields = (max_length?: number) => {
@@ -56,8 +57,12 @@ const getSamplerFields = (max_length?: number) => {
                     cleanvalue = Math.min(value, max_length)
                 } else if (samplerItem.values.type === 'integer') cleanvalue = Math.floor(value)
             if (item.samplerID === SamplerID.DRY_SEQUENCE_BREAK) {
+                // empty breakers would make every token a sequence break
                 //@ts-expect-error. This is due to a migration
-                cleanvalue = (value as string).split(',')
+                cleanvalue = (value as string)
+                    .split(',')
+                    .map((item) => item.replaceAll('\\n', '\n'))
+                    .filter((item) => item.length > 0)
             }
             return { [item.externalName as SamplerID]: cleanvalue }
         })
@@ -437,6 +442,7 @@ const obtainFields = async (): Promise<ContextBuilderParams | void> => {
             character: Object.assign({}, characterCard),
             user: Object.assign({}, userCard),
             messages: [...messages],
+            chatMemory: chatState.data?.memory ?? '',
             chatTokenizer: async (entry, index) => {
                 // IMPORTANT - we use -1 for dummy entries
                 if (entry.id === -1) return 0
@@ -445,8 +451,9 @@ const obtainFields = async (): Promise<ContextBuilderParams | void> => {
             tokenizer: Llama.useLlamaModelStore.getState().tokenLength,
             maxLength: length,
             cache: {
-                userCache: await characterState.getCache(characterCard.name),
-                characterCache: await userState.getCache(userCard.name),
+                // each cache holds its own card's token counts, keyed by the other party's name
+                userCache: await userState.getCache(characterCard.name),
+                characterCache: await characterState.getCache(userCard.name),
                 instructCache: await instructState.getCache(characterCard.name, userCard.name),
             },
         }

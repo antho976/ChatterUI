@@ -9,6 +9,7 @@ import {
     SamplerID,
     Samplers,
 } from '@lib/constants/SamplerData'
+import { recommendedSamplerPresets } from '@lib/constants/SamplerPresets'
 import { Storage } from '@lib/enums/Storage'
 import { Logger } from '@lib/state/Logger'
 import { createMMKVStorage } from '@lib/storage/MMKV'
@@ -27,6 +28,7 @@ export type SamplerStateProps = {
     deleteSamplerConfig: (index: number) => void
     setConfig: (index: number) => void
     fixConfigs: () => void
+    addRecommendedConfigs: () => number
 }
 
 export namespace SamplersManager {
@@ -75,6 +77,15 @@ export namespace SamplersManager {
                         })),
                     }))
                 },
+                addRecommendedConfigs: () => {
+                    const existing = get().configList.map((item) => item.name)
+                    const missing = recommendedSamplerPresets
+                        .filter((item) => !existing.includes(item.name))
+                        .map((item) => ({ name: item.name, data: { ...item.data } }))
+                    if (missing.length === 0) return 0
+                    set((state) => ({ configList: [...state.configList, ...missing] }))
+                    return missing.length
+                },
             }),
             {
                 name: Storage.Samplers,
@@ -100,6 +111,7 @@ export namespace SamplersManager {
             changeConfig,
             updateCurrentConfig,
             configList,
+            addRecommendedConfigs,
         } = useSamplerStore(
             useShallow((state) => ({
                 currentPresetIndex: state.currentConfigIndex,
@@ -109,6 +121,7 @@ export namespace SamplersManager {
                 changeConfig: state.setConfig,
                 updateCurrentConfig: state.updateCurrentConfig,
                 configList: state.configList,
+                addRecommendedConfigs: state.addRecommendedConfigs,
             }))
         )
 
@@ -122,6 +135,7 @@ export namespace SamplersManager {
             updateCurrentConfig,
             currentConfig,
             configList,
+            addRecommendedConfigs,
         }
     }
 

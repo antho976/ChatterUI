@@ -1,4 +1,4 @@
-import { and, count, desc, eq, getTableColumns, like, sql } from 'drizzle-orm'
+import { and, count, desc, eq, getTableColumns, inArray, like, sql } from 'drizzle-orm'
 import { randomUUID } from 'expo-crypto'
 import * as Notifications from 'expo-notifications'
 import mime from 'mime/lite'
@@ -66,6 +66,9 @@ export interface ChatState {
     ) => Promise<void>
     delete: (chatId: number) => Promise<void>
     reset: () => void
+    // privacy & memory
+    setHidden: (chatId: number, hidden: boolean) => Promise<void>
+    setMemory: (chatId: number, memory: string) => Promise<void>
 
     // chat entry data
     addEntry: (
@@ -180,6 +183,24 @@ export const useInference = create<InferenceStateType>((set, get) => ({
     },
 }))
 
+/**
+ * Chats that should never be auto-loaded, previewed or searched
+ */
+const visibleChatFilter = and(eq(chats.hidden, false), eq(chats.ghost, false))
+
+const purgeGhostChat = async (chatId: number) => {
+    try {
+        // stop any in-flight generation for this chat before it disappears
+        if (useInference.getState().nowGenerating) {
+            await useInference.getState().abortFunction()
+        }
+        await Chats.db.mutate.deleteChat(chatId)
+        Logger.info(`Ghost chat ${chatId} erased`)
+    } catch (e) {
+        Logger.error(`Failed to erase ghost chat: ${e}`)
+    }
+}
+
 export namespace Chats {
     export const useChatState = create<ChatState>((set, get: () => ChatState) => ({
         data: undefined,
@@ -196,6 +217,12 @@ export namespace Chats {
             get().setBuffer({ data: '' })
         },
         load: async (chatId, overrideScrollOffset) => {
+            // leaving a ghost chat erases it permanently
+            const previous = get().data
+            if (previous?.ghost && previous.id !== chatId) {
+                await purgeGhostChat(previous.id)
+            }
+
             const data = (await db.query.chat(chatId)) as ChatData | undefined
 
             if (data?.user_id && mmkv.getBoolean(AppSettings.AutoLoadUser)) {
@@ -253,7 +280,24 @@ export namespace Chats {
             if (get().data?.id === chatId) get().reset()
         },
 
-        reset: () => set({ data: undefined }),
+        reset: () => {
+            const previous = get().data
+            set({ data: undefined })
+            // leaving a ghost chat erases it permanently
+            if (previous?.ghost) purgeGhostChat(previous.id)
+        },
+
+        setHidden: async (chatId, hidden) => {
+            await db.mutate.setHidden(chatId, hidden)
+            const data = get().data
+            if (data?.id === chatId) set({ data: { ...data, hidden: hidden } })
+        },
+
+        setMemory: async (chatId, memory) => {
+            await db.mutate.updateMemory(chatId, memory)
+            const data = get().data
+            if (data?.id === chatId) set({ data: { ...data, memory: memory } })
+        },
 
         addEntry: async (
             name: string,
@@ -529,10 +573,13 @@ export namespace Chats {
                 if (chat) return { ...chat }
             }
 
+            /**
+             * Hidden and ghost chats are never auto-selected
+             */
             export const chatNewestId = async (charId: number): Promise<number | undefined> => {
                 const result = await database.query.chats.findFirst({
                     orderBy: desc(chats.last_modified),
-                    where: eq(chats.character_id, charId),
+                    where: and(eq(chats.character_id, charId), visibleChatFilter),
                 })
                 return result?.id
             }
@@ -540,6 +587,7 @@ export namespace Chats {
             export const chatNewest = async () => {
                 const result = await database.query.chats.findFirst({
                     orderBy: desc(chats.last_modified),
+                    where: visibleChatFilter,
                 })
                 return result
             }
@@ -557,7 +605,7 @@ export namespace Chats {
                 return result
             }
 
-            export const chatListQuery = (charId: number) => {
+            export const chatListQuery = (charId: number, includeHidden: boolean = false) => {
                 return database
                     .select({
                         ...getTableColumns(chats),
@@ -566,7 +614,12 @@ export namespace Chats {
                     .from(chats)
                     .leftJoin(chatEntries, eq(chats.id, chatEntries.chat_id))
                     .groupBy(chats.id)
-                    .where(eq(chats.character_id, charId))
+                    .where(
+                        and(
+                            eq(chats.character_id, charId),
+                            includeHidden ? undefined : eq(chats.hidden, false)
+                        )
+                    )
                     .orderBy(desc(chats.last_modified))
             }
 
@@ -603,7 +656,13 @@ export namespace Chats {
                         sql`swi.entryId = ${chatEntries.id} AND swi.swipeIndex = ${chatEntries.swipe_id} + 1`
                     )
                     .innerJoin(chats, eq(chatEntries.chat_id, chats.id))
-                    .where(and(like(sql`swipe`, `%${query}%`), eq(chats.character_id, charId)))
+                    .where(
+                        and(
+                            like(sql`swipe`, `%${query}%`),
+                            eq(chats.character_id, charId),
+                            visibleChatFilter
+                        )
+                    )
                     .orderBy(sql`sendDate`)
                     .limit(100)) as ChatSearchQueryResult[]
 
@@ -632,7 +691,7 @@ export namespace Chats {
             }
         }
         export namespace mutate {
-            export const createChat = async (charId: number) => {
+            export const createChat = async (charId: number, options: { ghost?: boolean } = {}) => {
                 const card = await Characters.db.query.card(charId)
                 if (!card) {
                     Logger.error('Character does not exist!')
@@ -647,6 +706,7 @@ export namespace Chats {
                         .values({
                             character_id: charId,
                             user_id: userId ?? null,
+                            ghost: options.ghost ?? false,
                         })
                         .returning({ chatId: chats.id })
 
@@ -770,7 +830,54 @@ export namespace Chats {
 
             export const deleteChat = async (chatId: number) => {
                 await updateChatModified(chatId)
+                await deleteChatAttachmentFiles([chatId])
                 await database.delete(chats).where(eq(chats.id, chatId))
+            }
+
+            /**
+             * Deletes attachment files belonging to the given chats.
+             * Database rows are removed by cascade, files are not.
+             */
+            const deleteChatAttachmentFiles = async (chatIds: number[]) => {
+                if (chatIds.length === 0) return
+                const attachments = await database
+                    .select({ uri: chatAttachments.uri })
+                    .from(chatAttachments)
+                    .innerJoin(chatEntries, eq(chatAttachments.chat_entry_id, chatEntries.id))
+                    .where(inArray(chatEntries.chat_id, chatIds))
+                await Promise.all(
+                    attachments.map(async (item) => {
+                        try {
+                            await deleteFile(item.uri)
+                        } catch (e) {
+                            Logger.warn(`Failed to delete attachment file: ${e}`)
+                        }
+                    })
+                )
+            }
+
+            export const setHidden = async (chatId: number, hidden: boolean) => {
+                await database.update(chats).set({ hidden: hidden }).where(eq(chats.id, chatId))
+            }
+
+            export const updateMemory = async (chatId: number, memory: string) => {
+                await database.update(chats).set({ memory: memory }).where(eq(chats.id, chatId))
+            }
+
+            /**
+             * Permanently removes every ghost chat, including attachment files.
+             * Used on startup in case the app was closed before a ghost chat was left.
+             */
+            export const purgeGhostChats = async () => {
+                const ghosts = await database
+                    .select({ id: chats.id })
+                    .from(chats)
+                    .where(eq(chats.ghost, true))
+                if (ghosts.length === 0) return 0
+                const ids = ghosts.map((item) => item.id)
+                await deleteChatAttachmentFiles(ids)
+                await database.delete(chats).where(inArray(chats.id, ids))
+                return ids.length
             }
 
             export const deleteChatEntry = async (entryId: number) => {
@@ -819,6 +926,8 @@ export namespace Chats {
                 if (!result) return
 
                 result.last_modified = Date.now()
+                // a clone is an explicit request to keep the chat
+                result.ghost = false
                 const newChatid = await cloneChat(result)
                 return newChatid
             }

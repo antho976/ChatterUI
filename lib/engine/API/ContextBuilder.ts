@@ -36,6 +36,8 @@ export interface ContextBuilderParams {
     cache: TokenCache
     bypassContextLength?: boolean
     messageLoader?: MessageLoader
+    /** per-chat memory notes, injected after the chat history */
+    chatMemory?: string
 }
 
 type ContentTypes =
@@ -72,6 +74,7 @@ export const buildChatCompletionContext = async ({
     maxLength,
     bypassContextLength,
     messageLoader,
+    chatMemory,
 }: ContextBuilderParams) => {
     const delta = performance.now()
 
@@ -93,6 +96,16 @@ export const buildChatCompletionContext = async ({
     let total_length = systemPromptLength
     let first_message_reached = false
 
+    // post-history note (chat memory + card rules) is reserved before history is added
+    const postHistory = await getPostHistoryNote({
+        instruct,
+        character,
+        characterCache,
+        chatMemory,
+        tokenizer,
+    })
+    total_length += postHistory.length
+
     const payload: Message[] = [
         {
             role: completionFeats.systemRole,
@@ -102,7 +115,9 @@ export const buildChatCompletionContext = async ({
     let hasImage = false
     const messageBuffer: Message[] = []
     let index = messages.length - 1
-    for (const message of messages.reverse()) {
+    // the note goes before the reply being written, even when continuing a partial reply
+    let lastMessageIncluded = false
+    for (const message of [...messages].reverse()) {
         const swipe_data = message.swipes[message.swipe_id]
         // special case for claude, prefill may be useful!
         const timestamp_string = `[${swipe_data.send_date.toString().split(' ')[0]} ${swipe_data.send_date.toLocaleTimeString()}]\n`
@@ -174,12 +189,21 @@ export const buildChatCompletionContext = async ({
             })
         }
         first_message_reached = index === 0
+        if (index === messages.length - 1 && !message.is_user) lastMessageIncluded = true
         total_length += len
         index--
     }
 
     if (index >= messages.length - 1 && messages.length !== 0) {
         warnNoMessages()
+    }
+
+    if (postHistory.text) {
+        // messageBuffer is newest-first: index 0 is the partial reply when continuing
+        messageBuffer.splice(lastMessageIncluded ? 1 : 0, 0, {
+            role: completionFeats.systemRole,
+            [completionFeats.contentName]: postHistory.text,
+        })
     }
 
     const examples = character?.mes_example
@@ -220,6 +244,7 @@ export const buildTextCompletionContext = async ({
     maxLength,
     bypassContextLength,
     messageLoader,
+    chatMemory,
 }: ContextBuilderParams) => {
     const delta = performance.now()
     const useSuffix = false
@@ -236,10 +261,30 @@ export const buildTextCompletionContext = async ({
     })
 
     let payload = systemPrompt
-    const payloadLength = systemPromptLength
+    let payloadLength = systemPromptLength
+
+    // post-history note (chat memory + card rules) is placed right before the reply
+    const postHistory = await getPostHistoryNote({
+        instruct,
+        character,
+        characterCache,
+        chatMemory,
+        tokenizer,
+    })
+    let note_shard = ''
+    if (postHistory.text) {
+        note_shard = instruct.system_prefix + postHistory.text + instruct.system_suffix
+        if (instruct.wrap) note_shard += '\n'
+        payloadLength +=
+            postHistory.length +
+            instructCache.system_prefix_length +
+            instructCache.system_suffix_length
+    }
 
     // suffix must be delayed for example messages
     let message_acc = ``
+    // the shard of the reply being written, kept apart so the note can precede it
+    let last_shard = ``
     let message_acc_length = 0
     let is_last = true
     let index = messages.length - 1
@@ -252,7 +297,7 @@ export const buildTextCompletionContext = async ({
     let first_message_reached = false
 
     // we require lengths for names if use_names is enabled
-    for (const message of messages.reverse()) {
+    for (const message of [...messages].reverse()) {
         const swipe_len = await chatTokenizer(message, index)
         const swipe_data = message.swipes[message.swipe_id]
 
@@ -311,10 +356,11 @@ export const buildTextCompletionContext = async ({
 
         first_message_reached = index === 0
 
+        message_acc_length += shard_length
+        if (is_last && !message.is_user) last_shard = message_shard
+        else message_acc = message_shard + message_acc
         // ensure no more is_last checks after this
         is_last = false
-        message_acc_length += shard_length
-        message_acc = message_shard + message_acc
         index--
     }
 
@@ -334,7 +380,7 @@ export const buildTextCompletionContext = async ({
     }
 
     payload += instruct.system_suffix
-    payload = replaceMacrosInternal(payload + message_acc, instruct)
+    payload = replaceMacrosInternal(payload + message_acc + note_shard + last_shard, instruct)
 
     Logger.info(`Approximate Context Size: ${message_acc_length + payloadLength} tokens`)
     Logger.info(`${(performance.now() - delta).toFixed(2)}ms taken to build context`)
@@ -349,10 +395,44 @@ const thinkRule = buildThinkRules()
 const getMacroRules = (instruct: InstructType) => {
     const data: Macro[] = []
     if (instruct.hide_think_tags) {
-        data.concat(thinkRule)
+        // strips reasoning blocks from history so they never feed back into the model
+        data.push(...thinkRule)
     }
     // for expansion
     return data
+}
+
+/**
+ * Builds the note sent after the chat history: chat memory first, then the card's
+ * post-history instructions. Being the last thing before the reply, it is followed closely.
+ */
+const getPostHistoryNote = async ({
+    instruct,
+    character,
+    characterCache,
+    chatMemory,
+    tokenizer,
+}: {
+    instruct: InstructType
+    character?: CharacterCardData
+    characterCache: CharacterTokenCache
+    chatMemory?: string
+    tokenizer: ContextBuilderParams['tokenizer']
+}) => {
+    const parts: string[] = []
+    let length = 0
+    const memory = chatMemory?.trim() ?? ''
+    if (memory) {
+        const memoryText = replaceMacrosInternal(`[Memory]\n${memory}`, instruct)
+        parts.push(memoryText)
+        length += await tokenizer(memoryText)
+    }
+    const rules = character?.post_history_instructions?.trim() ?? ''
+    if (instruct.use_post_history && rules) {
+        parts.push(replaceMacrosInternal(rules, instruct))
+        length += characterCache.post_history_length
+    }
+    return { text: parts.join('\n\n'), length: length }
 }
 
 const replaceMacrosInternal = (data: string, instruct: InstructType) => {
@@ -423,6 +503,19 @@ export const getSystemPrompt = ({
     }
 
     let systemPromptLength = 0
+
+    // a card may define its own system prompt, {{original}} inserts the instruct's prompt
+    const instructSystemPrompt = instruct.system_prompt ?? ''
+    const cardSystemPrompt = character?.system_prompt?.trim() ?? ''
+    const useCardPrompt = instruct.use_card_system_prompt && cardSystemPrompt.length > 0
+    const finalSystemPrompt = useCardPrompt
+        ? cardSystemPrompt.replaceAll('{{original}}', instructSystemPrompt)
+        : instructSystemPrompt
+    const finalSystemPromptLength = useCardPrompt
+        ? characterCache.system_prompt_length +
+          (cardSystemPrompt.includes('{{original}}') ? instructCache.system_prompt_length : 0)
+        : instructCache.system_prompt_length
+
     const macros = [
         {
             macro: '{{system_prefix}}',
@@ -436,8 +529,8 @@ export const getSystemPrompt = ({
         },
         {
             macro: '{{system_prompt}}',
-            value: instruct.system_prompt ?? '',
-            length: instructCache.system_suffix_length,
+            value: finalSystemPrompt,
+            length: finalSystemPromptLength,
         },
         {
             macro: '{{character_desc}}',

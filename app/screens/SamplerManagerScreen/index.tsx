@@ -40,6 +40,7 @@ const SamplerManagerScreen = () => {
         currentConfigIndex,
         currentConfig,
         configList,
+        addRecommendedConfigs,
     } = SamplersManager.useSamplers()
 
     const { apiValues, activeIndex, getTemplates } = APIStateNew.useConnectionsStore(
@@ -108,6 +109,16 @@ const SamplerManagerScreen = () => {
                     icon: 'file-add',
                     onPress: (close) => {
                         setShowNewSampler(true)
+                        close()
+                    },
+                },
+                {
+                    label: 'Add Recommended',
+                    icon: 'star',
+                    onPress: (close) => {
+                        const added = addRecommendedConfigs()
+                        if (added > 0) Logger.infoToast(`Added ${added} recommended preset(s)`)
+                        else Logger.infoToast('Recommended presets already exist')
                         close()
                     },
                 },

@@ -79,6 +79,8 @@ const ChatScreen = () => {
         const chat = result.data
         chat.character_id = charId
         chat.scroll_offset = 0
+        // an imported chat is always meant to be kept
+        chat.ghost = false
         delete chat.id
         chat.messages = chat.messages.map((message) => {
             delete message.id

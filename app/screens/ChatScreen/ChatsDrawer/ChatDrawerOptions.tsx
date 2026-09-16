@@ -17,6 +17,7 @@ type ChatEditPopupProps = {
 
 const ChatEditPopup: React.FC<ChatEditPopupProps> = ({ item, children, onPress }) => {
     const [showRename, setShowRename] = useState<boolean>(false)
+    const [showMemory, setShowMemory] = useState<boolean>(false)
 
     const { charName, charId } = Characters.useCharacterStore(
         useShallow((state) => ({
@@ -33,6 +34,18 @@ const ChatEditPopup: React.FC<ChatEditPopupProps> = ({ item, children, onPress }
     )
 
     const { deleteChat, loadChat, chatId, unloadChat } = Chats.useChat()
+    const { setHidden, setMemory } = Chats.useChatState(
+        useShallow((state) => ({
+            setHidden: state.setHidden,
+            setMemory: state.setMemory,
+        }))
+    )
+
+    const handleToggleHidden = async (close: () => void) => {
+        await setHidden(item.id, !item.hidden)
+        Logger.infoToast(item.hidden ? 'Chat is now visible' : 'Chat hidden')
+        close()
+    }
 
     const handleDeleteChat = (close: () => void) => {
         Alert.alert({
@@ -124,6 +137,19 @@ const ChatEditPopup: React.FC<ChatEditPopupProps> = ({ item, children, onPress }
                 verifyText={(text) => (text.length === 0 ? 'Name cannot be empty' : '')}
                 defaultValue={item.name}
             />
+            <InputSheet
+                title="Chat Memory"
+                description="Notes the AI should always remember in this chat. These are sent near the end of the prompt so they are followed closely."
+                visible={showMemory}
+                setVisible={setShowMemory}
+                multiline
+                placeholder="e.g. The user's name is Alex. We agreed to meet at the tavern."
+                onConfirm={async (text) => {
+                    await setMemory(item.id, text)
+                    Logger.infoToast('Memory Saved')
+                }}
+                defaultValue={item.memory}
+            />
             <ContextMenu
                 placement="right"
                 longPress
@@ -136,6 +162,20 @@ const ChatEditPopup: React.FC<ChatEditPopupProps> = ({ item, children, onPress }
                             setShowRename(true)
                             close()
                         },
+                    },
+                    {
+                        label: 'Memory',
+                        icon: 'book',
+                        onPress: (close) => {
+                            setShowMemory(true)
+                            close()
+                        },
+                    },
+                    {
+                        label: item.hidden ? 'Unhide' : 'Hide',
+                        icon: item.hidden ? 'eye' : 'eye-invisible',
+                        onPress: handleToggleHidden,
+                        disabled: item.ghost,
                     },
                     {
                         label: 'Delete',

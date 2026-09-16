@@ -32,11 +32,20 @@ const defaultGenerics = {
     send_documents: true,
     last_image_only: true,
     system_prompt_format: defaultSystemPromptFormat,
+    use_card_system_prompt: true,
+    use_post_history: true,
 }
+
+/**
+ * Default system prompt. Explicitly asks the model to respect the card and to avoid
+ * repeating itself, which small local models are prone to.
+ */
+const defaultSystemPromptText =
+    "Write {{char}}'s next reply in a chat between {{char}} and {{user}}. Stay in character as {{char}} and strictly follow {{char}}'s description, personality, scenario and rules at all times. Never repeat or rephrase previous replies or questions; acknowledge what {{user}} said and move the conversation forward."
 
 const defaultInstructs: InstructType[] = [
     {
-        system_prompt: "Write {{char}}'s next reply in a chat between {{char}} and {{user}}.",
+        system_prompt: defaultSystemPromptText,
         system_prefix: '<|im_start|>system\n',
         system_suffix: '<|im_end|>\n',
         input_prefix: '<|im_start|>user\n',
@@ -51,7 +60,7 @@ const defaultInstructs: InstructType[] = [
         ...defaultGenerics,
     },
     {
-        system_prompt: "Write {{char}}'s next reply in a chat between {{char}} and {{user}}.",
+        system_prompt: defaultSystemPromptText,
         system_prefix: '### Instruction: ',
         system_suffix: '\n',
         input_prefix: '### Instruction: ',
@@ -66,7 +75,7 @@ const defaultInstructs: InstructType[] = [
         ...defaultGenerics,
     },
     {
-        system_prompt: "Write {{char}}'s next reply in a chat between {{char}} and {{user}}.",
+        system_prompt: defaultSystemPromptText,
         system_prefix: '<|start_header_id|>system<|end_header_id|>\n\n',
         system_suffix: '<|eot_id|>',
         input_prefix: '<|start_header_id|>user<|end_header_id|>\n\n',
@@ -81,7 +90,7 @@ const defaultInstructs: InstructType[] = [
         ...defaultGenerics,
     },
     {
-        system_prompt: "Write {{char}}'s next reply in a chat between {{char}} and {{user}}.",
+        system_prompt: defaultSystemPromptText,
         system_prefix: '<|system|>\n',
         system_suffix: '<|endoftext|>\n',
         input_prefix: '<|user|>\n',
@@ -96,7 +105,7 @@ const defaultInstructs: InstructType[] = [
         ...defaultGenerics,
     },
     {
-        system_prompt: "Write {{char}}'s next reply in a chat between {{char}} and {{user}}.",
+        system_prompt: defaultSystemPromptText,
         system_prefix: '<|system|>\n',
         system_suffix: '<|end|>\n',
         input_prefix: '<|user|>\n',
@@ -111,7 +120,7 @@ const defaultInstructs: InstructType[] = [
         ...defaultGenerics,
     },
     {
-        system_prompt: "Write {{char}}'s next reply in a chat between {{char}} and {{user}}.",
+        system_prompt: defaultSystemPromptText,
         system_prefix: '<start_of_turn>user\n',
         system_suffix: '<end_of_turn>\n',
         input_prefix: '<start_of_turn>user\n',
@@ -126,7 +135,7 @@ const defaultInstructs: InstructType[] = [
         ...defaultGenerics,
     },
     {
-        system_prompt: "Write {{char}}'s next reply in a chat between {{char}} and {{user}}.",
+        system_prompt: defaultSystemPromptText,
         system_prefix: '',
         system_suffix: '',
         input_prefix: '[INST]',
@@ -141,7 +150,7 @@ const defaultInstructs: InstructType[] = [
         ...defaultGenerics,
     },
     {
-        system_prompt: "Write {{char}}'s next reply in a chat between {{char}} and {{user}}.",
+        system_prompt: defaultSystemPromptText,
         system_prefix: '',
         system_suffix: '',
         input_prefix: '<｜User｜>',
@@ -207,7 +216,7 @@ export type InstructTokenCache = {
 
 export namespace Instructs {
     export const defaultInstruct: InstructType = {
-        system_prompt: "Write {{char}}'s next reply in a chat between {{char}} and {{user}}.",
+        system_prompt: defaultSystemPromptText,
         system_prefix: '### Instruction: ',
         system_suffix: '\n',
         input_prefix: '### Instruction: ',
@@ -300,7 +309,7 @@ export namespace Instructs {
                     const sequence: string[] = []
                     let extras: string[] = []
                     if (instruct.names) {
-                        const userName = Characters.useCharacterStore.getState().card?.name
+                        const userName = Characters.useUserStore.getState().card?.name
                         const charName = Characters.useCharacterStore.getState()?.card?.name
                         if (userName) sequence.push(`${userName} :`)
                         if (charName) sequence.push(`${charName} :`)
@@ -322,7 +331,7 @@ export namespace Instructs {
                 name: Storage.Instruct,
                 storage: createMMKVStorage(),
                 partialize: (state) => ({ data: state.data }),
-                version: 7,
+                version: 8,
                 migrate: async (persistedState: any, version) => {
                     if (!version) {
                         persistedState.data.timestamp = false
@@ -369,6 +378,11 @@ export namespace Instructs {
 
                     if (version === 6) {
                         persistedState.data.system_prompt_format = defaultSystemPromptFormat
+                    }
+
+                    if (version === 7) {
+                        persistedState.data.use_card_system_prompt = true
+                        persistedState.data.use_post_history = true
                     }
 
                     return persistedState

@@ -524,6 +524,36 @@ const ChracterEditorScreen = () => {
                             numberOfLines={16}
                         />
 
+                        <ThemedTextInput
+                            label="System Prompt"
+                            description="Overrides the System Prompt from Formatting for this character. Use {{original}} to include it. Leave blank to use the default."
+                            multiline
+                            containerStyle={styles.input}
+                            onChangeText={(mes) => {
+                                setCharacterCardEdited({
+                                    ...characterCard,
+                                    system_prompt: mes,
+                                })
+                            }}
+                            value={characterCard?.system_prompt}
+                            numberOfLines={6}
+                        />
+
+                        <ThemedTextInput
+                            label="Rules (Post-History Instructions)"
+                            description="Sent after the chat history, right before the reply, so the model follows these rules closely. Put the rules you want obeyed here."
+                            multiline
+                            containerStyle={styles.input}
+                            onChangeText={(mes) => {
+                                setCharacterCardEdited({
+                                    ...characterCard,
+                                    post_history_instructions: mes,
+                                })
+                            }}
+                            value={characterCard?.post_history_instructions}
+                            numberOfLines={8}
+                        />
+
                         <StringArrayEditor
                             label="Tags"
                             containerStyle={styles.input}

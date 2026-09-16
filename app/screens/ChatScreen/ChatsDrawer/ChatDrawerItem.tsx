@@ -1,4 +1,4 @@
-import { Ionicons } from '@expo/vector-icons'
+import { AntDesign, Ionicons } from '@expo/vector-icons'
 import { StyleSheet, Text, View } from 'react-native'
 
 import { Chats } from '@lib/state/Chat'
@@ -23,7 +23,18 @@ const ChatDrawerItem: React.FC<ChatDrawerItemProps> = ({ item, onLoad }) => {
             <View style={item.id === chatId ? styles.chatItemActive : styles.chatItem}>
                 <View
                     style={{ flex: 1, paddingHorizontal: spacing.xs, paddingVertical: spacing.m }}>
-                    <Text style={styles.title}>{item.name}</Text>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', columnGap: 8 }}>
+                        <Text style={[styles.title, { flex: 1 }]} numberOfLines={1}>
+                            {item.name}
+                        </Text>
+                        {item.ghost && (
+                            <AntDesign name="eye-invisible" size={16} color={color.primary._500} />
+                        )}
+                        {item.hidden && <AntDesign name="lock" size={16} color={color.text._500} />}
+                        {item.memory.length > 0 && (
+                            <AntDesign name="book" size={16} color={color.text._500} />
+                        )}
+                    </View>
                     <View
                         style={{
                             flexDirection: 'row',

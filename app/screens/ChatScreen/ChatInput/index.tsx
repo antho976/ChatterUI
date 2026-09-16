@@ -3,7 +3,7 @@ import { randomUUID } from 'expo-crypto'
 import { getDocumentAsync } from 'expo-document-picker'
 import { Image } from 'expo-image'
 import React, { useState } from 'react'
-import { TextInput, TouchableOpacity, View } from 'react-native'
+import { Text, TextInput, TouchableOpacity, View } from 'react-native'
 import { useMMKVBoolean } from 'react-native-mmkv'
 import Animated, {
     BounceIn,
@@ -57,6 +57,7 @@ const ChatInput = () => {
     const [hideOptions, setHideOptions] = useState(false)
     const [showCamera, setShowCamera] = useState(false)
     const { addEntry } = Chats.useEntry()
+    const isGhost = Chats.useChatState(useShallow((state) => state.data?.ghost ?? false))
     const { nowGenerating, abortFunction } = useInference(
         useShallow((state) => ({
             nowGenerating: state.nowGenerating,
@@ -196,6 +197,26 @@ const ChatInput = () => {
                     )
                 }}
             />
+            {isGhost && (
+                <Animated.View
+                    entering={FadeIn}
+                    exiting={FadeOut}
+                    style={{
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        columnGap: 8,
+                        alignSelf: 'center',
+                        paddingHorizontal: spacing.l,
+                        paddingVertical: spacing.s,
+                        borderRadius: borderRadius.m,
+                        backgroundColor: color.neutral._200,
+                    }}>
+                    <MaterialIcons name="visibility-off" size={16} color={color.text._400} />
+                    <Text style={{ color: color.text._400, fontSize: 12 }}>
+                        Ghost chat: erased permanently when you leave
+                    </Text>
+                </Animated.View>
+            )}
             <CameraSheet
                 onTakePicture={(picture) => {
                     setAttachments((attachments) => [

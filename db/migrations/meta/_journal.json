@@ -127,6 +127,13 @@
       "when": 1755240790214,
       "tag": "0017_regular_lady_ursula",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "6",
+      "when": 1789532747294,
+      "tag": "0018_slimy_magus",
+      "breakpoints": true
     }
   ]
 }

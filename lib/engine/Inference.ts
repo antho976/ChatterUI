@@ -144,6 +144,9 @@ const titleGeneratorStream = async (chatId: number) => {
     fields.samplers.genamt = 50
     fields.samplers.reasoning_max_tokens = 0
     fields.samplers.reasoning_effort = 'disabled'
+    // rules and memory are irrelevant for title generation
+    fields.instruct.use_post_history = false
+    fields.chatMemory = ''
     let output = ''
     fields.onData = (text) => {
         output += text
@@ -256,6 +259,7 @@ async function obtainFields(): Promise<APIBuilderParams | void> {
             character: Object.assign({}, characterCard),
             user: Object.assign({}, userCard),
             messages: [...messages],
+            chatMemory: chatState.data?.memory ?? '',
             stopSequence: stopSequence,
             stopGenerating: () => {},
             chatTokenizer: async (entry, index) => {
@@ -266,8 +270,9 @@ async function obtainFields(): Promise<APIBuilderParams | void> {
             tokenizer: Tokenizer.getTokenizer(),
             maxLength: length,
             cache: {
-                userCache: await characterState.getCache(characterCard.name),
-                characterCache: await userState.getCache(userCard.name),
+                // each cache holds its own card's token counts, keyed by the other party's name
+                userCache: await userState.getCache(characterCard.name),
+                characterCache: await characterState.getCache(userCard.name),
                 instructCache: await instructState.getCache(characterCard.name, userCard.name),
             },
         }

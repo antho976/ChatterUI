@@ -102,6 +102,13 @@ export const chats = sqliteTable('chats', {
         .$onUpdateFn(() => Date.now()),
     name: text('name').notNull().default('New Chat'),
     scroll_offset: integer('scroll_offset', { mode: 'number' }).notNull().default(0),
+    // additions 16/9/2026 - privacy & memory
+    // hidden: chat is excluded from lists and previews until revealed
+    hidden: integer('hidden', { mode: 'boolean' }).notNull().default(false),
+    // ghost: chat is permanently erased when it is left
+    ghost: integer('ghost', { mode: 'boolean' }).notNull().default(false),
+    // memory: persistent notes injected near the end of the prompt
+    memory: text('memory').notNull().default(''),
 })
 
 export const chatEntries = sqliteTable('chat_entries', {
@@ -227,6 +234,12 @@ export const instructs = sqliteTable('instructs', {
 
     // additions 21/7/2025 v7
     system_prompt_format: text('system_prompt_format').notNull().default(defaultSystemPrompt),
+
+    // additions 16/9/2026 v8
+    use_card_system_prompt: integer('use_card_system_prompt', { mode: 'boolean' })
+        .notNull()
+        .default(true),
+    use_post_history: integer('use_post_history', { mode: 'boolean' }).notNull().default(true),
 })
 
 // LOREBOOKS
