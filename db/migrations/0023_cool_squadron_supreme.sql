@@ -1,0 +1,1 @@
+ALTER TABLE `instructs` ADD `strict_alternation` integer DEFAULT false NOT NULL;

@@ -496,6 +496,16 @@ const FormattingManager = () => {
                                 }}
                             />
                             <ThemedCheckbox
+                                label="Strict Role Alternation"
+                                value={currentInstruct.strict_alternation}
+                                onChangeValue={(b) => {
+                                    setCurrentInstruct({
+                                        ...currentInstruct,
+                                        strict_alternation: b,
+                                    })
+                                }}
+                            />
+                            <ThemedCheckbox
                                 label="Use Post-History Rules"
                                 value={currentInstruct.use_post_history}
                                 onChangeValue={(b) => {
@@ -512,7 +522,9 @@ const FormattingManager = () => {
                         one ({'{{original}}'} inserts it). Post-History Rules and Chat Memory are
                         sent after the chat history so the model follows them closely. Enable Rules
                         In User Message for models whose template rejects a system message mid-chat
-                        (Gemma).
+                        (Gemma). Strict Role Alternation merges same-role messages and adds a
+                        placeholder user turn before a greeting, for templates that reject anything
+                        but user/assistant/user (Gemma with --jinja).
                     </Text>
 
                     <SectionTitle>Attachments</SectionTitle>

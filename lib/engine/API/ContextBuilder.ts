@@ -246,7 +246,10 @@ export const buildChatCompletionContext = async ({
     if (postHistory.text) {
         // messageBuffer is newest-first: the first user role found is the latest user message
         const latestUser = messageBuffer.findIndex((item) => item.role === completionFeats.userRole)
-        if (instruct.note_in_user_message && latestUser !== -1) {
+        // strict alternation cannot carry a mid-chat system message, so it implies the
+        // note goes into the user message
+        const noteInUser = instruct.note_in_user_message || instruct.strict_alternation
+        if (noteInUser && latestUser !== -1) {
             // templates such as Gemma reject a system message mid-chat, so the note is
             // prepended to the latest user message instead
             const target = messageBuffer[latestUser]
@@ -288,7 +291,8 @@ export const buildChatCompletionContext = async ({
             [completionFeats.contentName]: apiValues.firstMessage,
         })
 
-    const output = [...payload, ...messageBuffer.reverse()]
+    let output = [...payload, ...messageBuffer.reverse()]
+    if (instruct.strict_alternation) output = enforceAlternation(output, completionFeats)
     Logger.info(`Approximate Context Size: ${total_length} tokens`)
     Logger.info(`${(performance.now() - delta).toFixed(2)}ms taken to build context`)
     if (mmkv.getBoolean(AppSettings.PrintContext)) Logger.info(JSON.stringify(output))
@@ -341,7 +345,9 @@ export const buildTextCompletionContext = async ({
         preset,
     })
     let note_shard = ''
-    const noteInUserMessage = instruct.note_in_user_message && postHistory.text.length > 0
+    const noteInUserMessage =
+        (instruct.note_in_user_message || instruct.strict_alternation) &&
+        postHistory.text.length > 0
     if (postHistory.text && !noteInUserMessage) {
         note_shard = instruct.system_prefix + postHistory.text + instruct.system_suffix
         if (instruct.wrap) note_shard += '\n'
@@ -479,6 +485,48 @@ export const buildTextCompletionContext = async ({
 }
 
 const thinkRule = buildThinkRules()
+
+/**
+ * Reshapes a chat-completion payload for templates that require strict
+ * user/assistant alternation (Gemma):
+ * - a single leading system message is kept
+ * - any other system message becomes part of a user turn
+ * - consecutive same-role messages are merged into one
+ * - a leading assistant message (the character's greeting) gets a placeholder user turn
+ */
+const enforceAlternation = (
+    output: Message[],
+    roles: { userRole: string; systemRole: string; assistantRole: string; contentName: string }
+): Message[] => {
+    const { userRole, systemRole, assistantRole, contentName } = roles
+    const hasSystem = output.length > 0 && output[0].role === systemRole
+    const head = hasSystem ? [output[0]] : []
+    const rest = hasSystem ? output.slice(1) : output
+
+    const mergeContent = (a: Message[string], b: Message[string]): Message[string] => {
+        if (typeof a === 'string' && typeof b === 'string') return `${a}\n\n${b}`
+        const toParts = (value: Message[string]): ContentTypes[] =>
+            typeof value === 'string' ? [{ type: 'text', text: value }] : [...value]
+        return [...toParts(a), ...toParts(b)]
+    }
+
+    const merged: Message[] = []
+    for (const message of rest) {
+        const role = message.role === systemRole ? userRole : message.role
+        const previous = merged[merged.length - 1]
+        if (previous && previous.role === role) {
+            previous[contentName] = mergeContent(previous[contentName], message[contentName])
+        } else {
+            merged.push({ ...message, role: role })
+        }
+    }
+
+    if (merged.length > 0 && merged[0].role === assistantRole) {
+        merged.unshift({ role: userRole, [contentName]: '[Start of the roleplay.]' })
+    }
+
+    return [...head, ...merged]
+}
 
 const getMacroRules = (instruct: InstructType) => {
     const data: Macro[] = []

@@ -162,6 +162,13 @@
       "when": 1789547829477,
       "tag": "0022_dazzling_susan_delgado",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "6",
+      "when": 1789552196065,
+      "tag": "0023_cool_squadron_supreme",
+      "breakpoints": true
     }
   ]
 }

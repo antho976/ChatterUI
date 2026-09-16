@@ -311,6 +311,11 @@ export const instructs = sqliteTable('instructs', {
     // additions 16/9/2026 v11
     // attachments are only sent from the last N messages; 0 sends them from any message
     attachment_depth: integer('attachment_depth').notNull().default(2),
+
+    // additions 16/9/2026 v12
+    // merge same-role messages and lead with a user turn, for templates that enforce
+    // strict user/assistant alternation (Gemma)
+    strict_alternation: integer('strict_alternation', { mode: 'boolean' }).notNull().default(false),
 })
 
 // LOREBOOKS
