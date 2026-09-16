@@ -300,10 +300,11 @@ export namespace Instructs {
                     const sequence: string[] = []
                     let extras: string[] = []
                     if (instruct.names) {
-                        const userName = Characters.useCharacterStore.getState().card?.name
-                        const charName = Characters.useCharacterStore.getState()?.card?.name
-                        if (userName) sequence.push(`${userName} :`)
-                        if (charName) sequence.push(`${charName} :`)
+                        const userName = Characters.useUserStore.getState().card?.name
+                        const charName = Characters.useCharacterStore.getState().card?.name
+                        // matches the "Name: " prefix written by the context builders
+                        if (userName) sequence.push(`${userName}:`)
+                        if (charName) sequence.push(`${charName}:`)
                     }
 
                     if (instruct.stop_sequence !== '')
