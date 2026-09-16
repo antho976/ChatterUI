@@ -13,6 +13,7 @@ import { APIConfiguration } from '@lib/engine/API/APIBuilder.types'
 import { APIManager, APIManagerValue } from '@lib/engine/API/APIManagerState'
 import { Logger } from '@lib/state/Logger'
 import { Theme } from '@lib/theme/ThemeManager'
+import { isInsecureEndpoint } from '@lib/utils/Network'
 import { getNestedValue } from '@lib/utils/Parsing'
 
 type ConnectionEditorProps = {
@@ -120,6 +121,13 @@ const ConnectionEditor: React.FC<ConnectionEditorProps> = ({
                                 }}
                             />
                             <Text style={styles.hintText}>Note: Use full URL path</Text>
+                            {isInsecureEndpoint(values.endpoint) && (
+                                <Text style={styles.insecureText}>
+                                    This endpoint uses plain HTTP. Everything you send can be read
+                                    on the network. Use an https:// address when you can (see
+                                    docs/SecureConnections.md).
+                                </Text>
+                            )}
                         </View>
                     )}
 
@@ -265,6 +273,13 @@ const useStyles = () => {
         hintText: {
             paddingTop: spacing.s,
             color: color.text._400,
+        },
+
+        insecureText: {
+            color: color.error._300,
+            fontSize: 12,
+            marginTop: 8,
+            paddingHorizontal: 8,
         },
     })
 }

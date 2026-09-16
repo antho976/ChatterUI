@@ -3,6 +3,7 @@ import BackgroundService from 'react-native-background-actions'
 import { AppSettings } from '@lib/constants/GlobalValues'
 import { useAppModeStore } from '@lib/state/AppMode'
 import { Chats, useInference } from '@lib/state/Chat'
+import { ChatPresets } from '@lib/state/ChatPresets'
 import { Instructs } from '@lib/state/Instructs'
 import { SamplersManager } from '@lib/state/SamplerState'
 import { useTTSStore } from '@lib/state/TTS'
@@ -144,9 +145,10 @@ const titleGeneratorStream = async (chatId: number) => {
     fields.samplers.genamt = 50
     fields.samplers.reasoning_max_tokens = 0
     fields.samplers.reasoning_effort = 'disabled'
-    // rules and memory are irrelevant for title generation
+    // rules, memory and presets are irrelevant for title generation
     fields.instruct.use_post_history = false
     fields.chatMemory = ''
+    fields.chatPreset = null
     let output = ''
     fields.onData = (text) => {
         output += text
@@ -260,6 +262,12 @@ async function obtainFields(): Promise<APIBuilderParams | void> {
             user: Object.assign({}, userCard),
             messages: [...messages],
             chatMemory: chatState.data?.memory ?? '',
+            chatPreset: chatState.data
+                ? await ChatPresets.db.query.activeForChat(
+                      chatState.data.id,
+                      chatState.data.active_preset_id
+                  )
+                : null,
             stopSequence: stopSequence,
             stopGenerating: () => {},
             chatTokenizer: async (entry, index) => {

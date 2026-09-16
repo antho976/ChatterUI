@@ -1,5 +1,6 @@
 import { and, count, desc, eq, getTableColumns, inArray, like, sql } from 'drizzle-orm'
 import { randomUUID } from 'expo-crypto'
+import { getDocumentAsync } from 'expo-document-picker'
 import * as Notifications from 'expo-notifications'
 import mime from 'mime/lite'
 import { create } from 'zustand'
@@ -69,6 +70,8 @@ export interface ChatState {
     // privacy & memory
     setHidden: (chatId: number, hidden: boolean) => Promise<void>
     setMemory: (chatId: number, memory: string) => Promise<void>
+    setBackground: (chatId: number, imageId: number | null) => Promise<void>
+    setActivePreset: (chatId: number, presetId: number | null) => Promise<void>
 
     // chat entry data
     addEntry: (
@@ -297,6 +300,18 @@ export namespace Chats {
             await db.mutate.updateMemory(chatId, memory)
             const data = get().data
             if (data?.id === chatId) set({ data: { ...data, memory: memory } })
+        },
+
+        setBackground: async (chatId, imageId) => {
+            await db.mutate.updateBackground(chatId, imageId)
+            const data = get().data
+            if (data?.id === chatId) set({ data: { ...data, background_image: imageId } })
+        },
+
+        setActivePreset: async (chatId, presetId) => {
+            await db.mutate.updateActivePreset(chatId, presetId)
+            const data = get().data
+            if (data?.id === chatId) set({ data: { ...data, active_preset_id: presetId } })
         },
 
         addEntry: async (
@@ -831,7 +846,40 @@ export namespace Chats {
             export const deleteChat = async (chatId: number) => {
                 await updateChatModified(chatId)
                 await deleteChatAttachmentFiles([chatId])
+                await deleteChatBackgroundFiles([chatId])
                 await database.delete(chats).where(eq(chats.id, chatId))
+            }
+
+            const deleteChatBackgroundFiles = async (chatIds: number[]) => {
+                if (chatIds.length === 0) return
+                const rows = await database
+                    .select({ background_image: chats.background_image })
+                    .from(chats)
+                    .where(inArray(chats.id, chatIds))
+                await Promise.all(
+                    rows.map(async (item) => {
+                        if (!item.background_image) return
+                        try {
+                            await Characters.deleteImage(item.background_image)
+                        } catch (e) {
+                            Logger.warn(`Failed to delete chat background: ${e}`)
+                        }
+                    })
+                )
+            }
+
+            export const updateBackground = async (chatId: number, imageId: number | null) => {
+                await database
+                    .update(chats)
+                    .set({ background_image: imageId })
+                    .where(eq(chats.id, chatId))
+            }
+
+            export const updateActivePreset = async (chatId: number, presetId: number | null) => {
+                await database
+                    .update(chats)
+                    .set({ active_preset_id: presetId })
+                    .where(eq(chats.id, chatId))
             }
 
             /**
@@ -876,6 +924,7 @@ export namespace Chats {
                 if (ghosts.length === 0) return 0
                 const ids = ghosts.map((item) => item.id)
                 await deleteChatAttachmentFiles(ids)
+                await deleteChatBackgroundFiles(ids)
                 await database.delete(chats).where(inArray(chats.id, ids))
                 return ids.length
             }
@@ -928,6 +977,17 @@ export namespace Chats {
                 result.last_modified = Date.now()
                 // a clone is an explicit request to keep the chat
                 result.ghost = false
+                // presets belong to the original chat, the clone starts without one
+                result.active_preset_id = null
+                // each chat owns its background file
+                if (result.background_image) {
+                    const newId = Date.now()
+                    await copyFile({
+                        from: Characters.getImageDir(result.background_image),
+                        to: Characters.getImageDir(newId),
+                    })
+                    result.background_image = newId
+                }
                 const newChatid = await cloneChat(result)
                 return newChatid
             }
@@ -978,6 +1038,40 @@ export namespace Chats {
                     .set({ scroll_offset: scrollOffset })
                     .where(eq(chats.id, chatId))
             }
+        }
+    }
+
+    /**
+     * Picks an image and sets it as the background of a chat, replacing any previous one.
+     */
+    export const importBackground = async (chatId: number, oldBackground?: number | null) => {
+        try {
+            const result = await getDocumentAsync({
+                copyToCacheDirectory: true,
+                type: ['image/*'],
+            })
+            if (result.canceled) return
+            const uri = result.assets[0].uri
+            if (!uri) return
+            const imageId = Date.now()
+            await Characters.copyImage(uri, imageId)
+            await useChatState.getState().setBackground(chatId, imageId)
+            if (oldBackground) await Characters.deleteImage(oldBackground)
+            Logger.infoToast('Chat background set')
+        } catch (e) {
+            Logger.errorToast('Failed to set chat background')
+            Logger.error(`${e}`)
+        }
+    }
+
+    export const removeBackground = async (chatId: number, imageId: number) => {
+        try {
+            await useChatState.getState().setBackground(chatId, null)
+            await Characters.deleteImage(imageId)
+            Logger.infoToast('Chat background removed')
+        } catch (e) {
+            Logger.errorToast('Failed to remove chat background')
+            Logger.error(`${e}`)
         }
     }
 

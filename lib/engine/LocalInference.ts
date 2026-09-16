@@ -3,6 +3,7 @@ import { AppSettings } from '@lib/constants/GlobalValues'
 import { SamplerConfigData, SamplerID, Samplers } from '@lib/constants/SamplerData'
 import { Characters } from '@lib/state/Characters'
 import { Chats, useInference } from '@lib/state/Chat'
+import { ChatPresets } from '@lib/state/ChatPresets'
 import { commonStopStrings, Instructs, outputPrefixes } from '@lib/state/Instructs'
 import { Logger } from '@lib/state/Logger'
 import { SamplersManager } from '@lib/state/SamplerState'
@@ -443,6 +444,12 @@ const obtainFields = async (): Promise<ContextBuilderParams | void> => {
             user: Object.assign({}, userCard),
             messages: [...messages],
             chatMemory: chatState.data?.memory ?? '',
+            chatPreset: chatState.data
+                ? await ChatPresets.db.query.activeForChat(
+                      chatState.data.id,
+                      chatState.data.active_preset_id
+                  )
+                : null,
             chatTokenizer: async (entry, index) => {
                 // IMPORTANT - we use -1 for dummy entries
                 if (entry.id === -1) return 0

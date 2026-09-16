@@ -20,7 +20,7 @@ import CameraSheet from '@components/views/CameraSheet'
 import ContextMenu from '@components/views/ContextMenu'
 import { XAxisOnlyTransition } from '@lib/animations/transitions'
 import { AppSettings } from '@lib/constants/GlobalValues'
-import { generateResponse } from '@lib/engine/Inference'
+import { continueResponse, generateResponse } from '@lib/engine/Inference'
 import { useUnfocusTextInput } from '@lib/hooks/UnfocusTextInput'
 import { Characters } from '@lib/state/Characters'
 import { Chats, useInference } from '@lib/state/Chat'
@@ -100,6 +100,39 @@ const ChatInput = () => {
         setNewMessage('')
         setAttachments([])
         if (swipeId) generateResponse(swipeId)
+    }
+
+    /**
+     * Lets the character speak next without the user typing anything.
+     * An empty trailing reply (e.g. a failed generation) is regenerated instead.
+     */
+    const handleContinueChat = async () => {
+        if (nowGenerating) return
+        const messages = Chats.useChatState.getState().data?.messages
+        const last = messages?.at(-1)
+        if (!last) return
+        const lastSwipe = last.swipes[last.swipe_id]
+        if (!last.is_user && lastSwipe && lastSwipe.swipe.trim() === '') {
+            generateResponse(lastSwipe.id)
+            return
+        }
+        const swipeId = await addEntry(charName ?? '', false, '')
+        if (swipeId) generateResponse(swipeId)
+    }
+
+    /**
+     * Extends the last character reply instead of starting a new one.
+     */
+    const handleContinueLastMessage = async () => {
+        if (nowGenerating) return
+        const messages = Chats.useChatState.getState().data?.messages
+        const last = messages?.at(-1)
+        if (!last || last.is_user) {
+            Logger.infoToast('Last message is not from the character')
+            return
+        }
+        const lastSwipe = last.swipes[last.swipe_id]
+        if (lastSwipe) continueResponse(lastSwipe.id)
     }
 
     const handlePickImage = async () => {
@@ -326,6 +359,21 @@ const ChatInput = () => {
                     submitBehavior={sendOnEnter ? 'blurAndSubmit' : 'newline'}
                     onSubmitEditing={sendOnEnter ? handleSend : undefined}
                 />
+                {!newMessage && !nowGenerating && (
+                    <Animated.View layout={XAxisOnlyTransition} entering={FadeIn} exiting={FadeOut}>
+                        <TouchableOpacity
+                            style={{
+                                borderRadius: borderRadius.m,
+                                backgroundColor: color.neutral._200,
+                                padding: spacing.m,
+                            }}
+                            onPress={handleContinueChat}
+                            onLongPress={handleContinueLastMessage}
+                            delayLongPress={400}>
+                            <MaterialIcons name="fast-forward" color={color.text._300} size={24} />
+                        </TouchableOpacity>
+                    </Animated.View>
+                )}
                 <Animated.View layout={XAxisOnlyTransition}>
                     <TouchableOpacity
                         style={{

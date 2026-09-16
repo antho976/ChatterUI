@@ -8,6 +8,7 @@ import { replaceMacros } from '@lib/state/Macros'
 import { mmkv } from '@lib/storage/MMKV'
 import { readBase64Async } from '@lib/utils/File'
 import { Macro } from '@lib/utils/Macros'
+import { ChatPresetType } from 'db/schema'
 
 import { APIConfiguration, APIValues } from './APIBuilder.types'
 
@@ -38,6 +39,35 @@ export interface ContextBuilderParams {
     messageLoader?: MessageLoader
     /** per-chat memory notes, injected after the chat history */
     chatMemory?: string
+    /** active chat preset, overrides the system prompt, persona and rules when set */
+    chatPreset?: ChatPresetType | null
+}
+
+/**
+ * A chat preset resolved to macro-replaced text with token counts.
+ * Blank fields are dropped so the card / instruct values apply instead.
+ */
+export type ResolvedChatPreset = {
+    system_prompt?: { text: string; length: number }
+    persona?: { text: string; length: number }
+    rules?: { text: string; length: number }
+}
+
+export const resolveChatPreset = async (
+    preset: ChatPresetType | null | undefined,
+    instruct: InstructType,
+    tokenizer: ContextBuilderParams['tokenizer']
+): Promise<ResolvedChatPreset> => {
+    const resolved: ResolvedChatPreset = {}
+    if (!preset) return resolved
+    const fields = ['system_prompt', 'persona', 'rules'] as const
+    for (const field of fields) {
+        const raw = preset[field]?.trim() ?? ''
+        if (!raw) continue
+        const text = replaceMacrosInternal(raw, instruct)
+        resolved[field] = { text: text, length: await tokenizer(text) }
+    }
+    return resolved
 }
 
 type ContentTypes =
@@ -75,6 +105,7 @@ export const buildChatCompletionContext = async ({
     bypassContextLength,
     messageLoader,
     chatMemory,
+    chatPreset,
 }: ContextBuilderParams) => {
     const delta = performance.now()
 
@@ -82,6 +113,7 @@ export const buildChatCompletionContext = async ({
     const completionFeats = apiConfig.request.completionType
     const { characterCache, userCache, instructCache } = cache
     const usePrefix = false
+    const preset = await resolveChatPreset(chatPreset, instruct, tokenizer)
     const { systemPrompt, systemPromptLength } = getSystemPrompt({
         instruct,
         user,
@@ -90,6 +122,7 @@ export const buildChatCompletionContext = async ({
         characterCache,
         instructCache,
         usePrefix,
+        preset,
     })
 
     const initial = systemPrompt
@@ -103,6 +136,7 @@ export const buildChatCompletionContext = async ({
         characterCache,
         chatMemory,
         tokenizer,
+        preset,
     })
     total_length += postHistory.length
 
@@ -245,10 +279,12 @@ export const buildTextCompletionContext = async ({
     bypassContextLength,
     messageLoader,
     chatMemory,
+    chatPreset,
 }: ContextBuilderParams) => {
     const delta = performance.now()
     const useSuffix = false
     const { characterCache, userCache, instructCache } = cache
+    const preset = await resolveChatPreset(chatPreset, instruct, tokenizer)
 
     const { systemPrompt, systemPromptLength } = getSystemPrompt({
         instruct,
@@ -258,6 +294,7 @@ export const buildTextCompletionContext = async ({
         characterCache,
         instructCache,
         useSuffix,
+        preset,
     })
 
     let payload = systemPrompt
@@ -270,6 +307,7 @@ export const buildTextCompletionContext = async ({
         characterCache,
         chatMemory,
         tokenizer,
+        preset,
     })
     let note_shard = ''
     if (postHistory.text) {
@@ -412,12 +450,14 @@ const getPostHistoryNote = async ({
     characterCache,
     chatMemory,
     tokenizer,
+    preset = {},
 }: {
     instruct: InstructType
     character?: CharacterCardData
     characterCache: CharacterTokenCache
     chatMemory?: string
     tokenizer: ContextBuilderParams['tokenizer']
+    preset?: ResolvedChatPreset
 }) => {
     const parts: string[] = []
     let length = 0
@@ -427,10 +467,18 @@ const getPostHistoryNote = async ({
         parts.push(memoryText)
         length += await tokenizer(memoryText)
     }
-    const rules = character?.post_history_instructions?.trim() ?? ''
-    if (instruct.use_post_history && rules) {
-        parts.push(replaceMacrosInternal(rules, instruct))
-        length += characterCache.post_history_length
+    if (instruct.use_post_history) {
+        // preset rules take precedence over the card's rules
+        if (preset.rules) {
+            parts.push(preset.rules.text)
+            length += preset.rules.length
+        } else {
+            const rules = character?.post_history_instructions?.trim() ?? ''
+            if (rules) {
+                parts.push(replaceMacrosInternal(rules, instruct))
+                length += characterCache.post_history_length
+            }
+        }
     }
     return { text: parts.join('\n\n'), length: length }
 }
@@ -483,6 +531,7 @@ export const getSystemPrompt = ({
     instructCache,
     usePrefix = true,
     useSuffix = true,
+    preset = {},
 }: {
     instruct: InstructType
     user?: CharacterCardData
@@ -492,6 +541,7 @@ export const getSystemPrompt = ({
     instructCache: InstructTokenCache
     usePrefix?: boolean
     useSuffix?: boolean
+    preset?: ResolvedChatPreset
 }) => {
     let systemPrompt = instruct.system_prompt_format
     if (systemPrompt === undefined) {
@@ -508,13 +558,26 @@ export const getSystemPrompt = ({
     const instructSystemPrompt = instruct.system_prompt ?? ''
     const cardSystemPrompt = character?.system_prompt?.trim() ?? ''
     const useCardPrompt = instruct.use_card_system_prompt && cardSystemPrompt.length > 0
-    const finalSystemPrompt = useCardPrompt
+    let finalSystemPrompt = useCardPrompt
         ? cardSystemPrompt.replaceAll('{{original}}', instructSystemPrompt)
         : instructSystemPrompt
-    const finalSystemPromptLength = useCardPrompt
+    let finalSystemPromptLength = useCardPrompt
         ? characterCache.system_prompt_length +
           (cardSystemPrompt.includes('{{original}}') ? instructCache.system_prompt_length : 0)
         : instructCache.system_prompt_length
+
+    // an active chat preset has the final say on the system prompt and persona
+    if (preset.system_prompt) {
+        const base = finalSystemPrompt
+        finalSystemPrompt = preset.system_prompt.text.replaceAll('{{original}}', base)
+        finalSystemPromptLength =
+            preset.system_prompt.length +
+            (preset.system_prompt.text.includes('{{original}}') ? finalSystemPromptLength : 0)
+    }
+    const finalUserDesc = preset.persona ? preset.persona.text : (user?.description ?? '')
+    const finalUserDescLength = preset.persona
+        ? preset.persona.length
+        : userCache.description_length
 
     const macros = [
         {
@@ -539,8 +602,8 @@ export const getSystemPrompt = ({
         },
         {
             macro: '{{user_desc}}',
-            value: user?.description ?? '',
-            length: userCache.description_length,
+            value: finalUserDesc,
+            length: finalUserDescLength,
         },
         {
             macro: '{{personality}}',

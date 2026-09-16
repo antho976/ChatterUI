@@ -109,7 +109,63 @@ export const chats = sqliteTable('chats', {
     ghost: integer('ghost', { mode: 'boolean' }).notNull().default(false),
     // memory: persistent notes injected near the end of the prompt
     memory: text('memory').notNull().default(''),
+    // per-chat background, falls back to the character background when null
+    background_image: integer('background_image', { mode: 'number' }),
+    // active chat preset (see chat_presets), no FK to avoid a circular table reference
+    active_preset_id: integer('active_preset_id', { mode: 'number' }),
 })
+
+/**
+ * Chat presets bundle a system prompt, persona and rules. A preset belongs to the chat
+ * it was created in and is only visible there, unless the owner chat gives it to other chats.
+ */
+export const chatPresets = sqliteTable('chat_presets', {
+    id: integer('id', { mode: 'number' }).primaryKey({ autoIncrement: true }),
+    owner_chat_id: integer('owner_chat_id', { mode: 'number' })
+        .notNull()
+        .references(() => chats.id, { onDelete: 'cascade' }),
+    name: text('name').notNull().default('New Preset'),
+    system_prompt: text('system_prompt').notNull().default(''),
+    persona: text('persona').notNull().default(''),
+    rules: text('rules').notNull().default(''),
+    create_date: integer('create_date', { mode: 'number' })
+        .notNull()
+        .$defaultFn(() => Date.now()),
+})
+
+export const chatPresetLinks = sqliteTable(
+    'chat_preset_links',
+    {
+        preset_id: integer('preset_id', { mode: 'number' })
+            .notNull()
+            .references(() => chatPresets.id, { onDelete: 'cascade' }),
+        chat_id: integer('chat_id', { mode: 'number' })
+            .notNull()
+            .references(() => chats.id, { onDelete: 'cascade' }),
+    },
+    (table) => {
+        return { pk: primaryKey({ columns: [table.preset_id, table.chat_id] }) }
+    }
+)
+
+export const chatPresetsRelations = relations(chatPresets, ({ one, many }) => ({
+    owner: one(chats, {
+        fields: [chatPresets.owner_chat_id],
+        references: [chats.id],
+    }),
+    links: many(chatPresetLinks),
+}))
+
+export const chatPresetLinksRelations = relations(chatPresetLinks, ({ one }) => ({
+    preset: one(chatPresets, {
+        fields: [chatPresetLinks.preset_id],
+        references: [chatPresets.id],
+    }),
+    chat: one(chats, {
+        fields: [chatPresetLinks.chat_id],
+        references: [chats.id],
+    }),
+}))
 
 export const chatEntries = sqliteTable('chat_entries', {
     id: integer('id', { mode: 'number' }).primaryKey({ autoIncrement: true }),
@@ -373,6 +429,7 @@ export type ChatSwipe = typeof chatSwipes.$inferSelect
 export type ChatEntryType = typeof chatEntries.$inferSelect
 export type ChatType = typeof chats.$inferSelect
 export type ChatAttachmentType = typeof chatAttachments.$inferSelect
+export type ChatPresetType = typeof chatPresets.$inferSelect
 
 export type CompletionTimings = {
     predicted_per_token_ms: number
