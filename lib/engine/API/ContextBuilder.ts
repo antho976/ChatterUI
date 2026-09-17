@@ -149,7 +149,9 @@ export const buildChatCompletionContext = async ({
     let hasImage = false
     const messageBuffer: Message[] = []
     let index = messages.length - 1
-    // the note goes before the reply being written, even when continuing a partial reply
+    // used to place the note: it goes just before the latest user message so the model
+    // answers the user rather than the note; when continuing a partial reply it stays
+    // before that reply
     let lastMessageIncluded = false
     for (const message of [...messages].reverse()) {
         const swipe_data = message.swipes[message.swipe_id]
@@ -157,14 +159,20 @@ export const buildChatCompletionContext = async ({
         const timestamp_string = `[${swipe_data.send_date.toString().split(' ')[0]} ${swipe_data.send_date.toLocaleTimeString()}]\n`
         const timestamp_length = instruct.timestamp ? await tokenizer(timestamp_string) : 0
 
-        const name_string = `${message.name} :`
+        const name_string = instruct.names ? `${message.name}: ` : ''
         const name_length = instruct.names ? await tokenizer(name_string) : 0
-        const { attachments, hasImageNew } = getValidAttachments(
+        // attachments beyond the depth are dropped so an old image is not re-encoded
+        // on every turn; the text history still mentions that one was there
+        const withinDepth =
+            instruct.attachment_depth <= 0 || index >= messages.length - instruct.attachment_depth
+        const { attachments, hasImageNew, omitted } = getValidAttachments(
             message,
             completionFeats,
             instruct,
-            hasImage
+            hasImage,
+            withinDepth
         )
+        const omittedNote = omitted > 0 ? ` [${omitted} image(s) attached earlier]` : ''
 
         const swipe_len = message.id !== -1 ? await chatTokenizer(message, index) : 0
         const len = swipe_len + name_length + timestamp_length
@@ -180,9 +188,7 @@ export const buildChatCompletionContext = async ({
         }
         const role = message.is_user ? completionFeats.userRole : completionFeats.assistantRole
 
-        if (message.attachments.length > 0) {
-            Logger.warn('Image output is incomplete')
-
+        if (attachments.length > 0) {
             const images: ContentTypes[] = await Promise.all(
                 attachments.map(async (item) => {
                     const base64data = await readBase64Async(item.uri)
@@ -208,7 +214,10 @@ export const buildChatCompletionContext = async ({
                 [completionFeats.contentName]: [
                     {
                         type: 'text',
-                        text: replaceMacrosInternal(prefill + swipe_data.swipe, instruct),
+                        text: replaceMacrosInternal(
+                            name_string + prefill + swipe_data.swipe,
+                            instruct
+                        ),
                     },
                     ...images,
                 ],
@@ -217,7 +226,7 @@ export const buildChatCompletionContext = async ({
             messageBuffer.push({
                 role: role,
                 [completionFeats.contentName]: replaceMacrosInternal(
-                    prefill + swipe_data.swipe,
+                    name_string + prefill + swipe_data.swipe + omittedNote,
                     instruct
                 ),
             })
@@ -230,14 +239,39 @@ export const buildChatCompletionContext = async ({
 
     if (index >= messages.length - 1 && messages.length !== 0) {
         warnNoMessages()
+    } else {
+        warnTruncated(index + 1, messages.length, total_length, maxLength)
     }
 
     if (postHistory.text) {
-        // messageBuffer is newest-first: index 0 is the partial reply when continuing
-        messageBuffer.splice(lastMessageIncluded ? 1 : 0, 0, {
-            role: completionFeats.systemRole,
-            [completionFeats.contentName]: postHistory.text,
-        })
+        // messageBuffer is newest-first: the first user role found is the latest user message
+        const latestUser = messageBuffer.findIndex((item) => item.role === completionFeats.userRole)
+        // strict alternation cannot carry a mid-chat system message, so it implies the
+        // note goes into the user message
+        const noteInUser = instruct.note_in_user_message || instruct.strict_alternation
+        if (noteInUser && latestUser !== -1) {
+            // templates such as Gemma reject a system message mid-chat, so the note is
+            // prepended to the latest user message instead
+            const target = messageBuffer[latestUser]
+            const content = target[completionFeats.contentName]
+            if (typeof content === 'string') {
+                target[completionFeats.contentName] = `${postHistory.text}\n\n${content}`
+            } else if (Array.isArray(content)) {
+                const textPart = content.find((part) => 'text' in part)
+                if (textPart && 'text' in textPart) {
+                    textPart.text = `${postHistory.text}\n\n${textPart.text}`
+                } else {
+                    content.unshift({ type: 'text', text: postHistory.text })
+                }
+            }
+        } else {
+            // inserting after the latest user message puts the note chronologically before it
+            const insertAt = latestUser !== -1 ? latestUser + 1 : lastMessageIncluded ? 1 : 0
+            messageBuffer.splice(insertAt, 0, {
+                role: completionFeats.systemRole,
+                [completionFeats.contentName]: postHistory.text,
+            })
+        }
     }
 
     const examples = character?.mes_example
@@ -257,7 +291,8 @@ export const buildChatCompletionContext = async ({
             [completionFeats.contentName]: apiValues.firstMessage,
         })
 
-    const output = [...payload, ...messageBuffer.reverse()]
+    let output = [...payload, ...messageBuffer.reverse()]
+    if (instruct.strict_alternation) output = enforceAlternation(output, completionFeats)
     Logger.info(`Approximate Context Size: ${total_length} tokens`)
     Logger.info(`${(performance.now() - delta).toFixed(2)}ms taken to build context`)
     if (mmkv.getBoolean(AppSettings.PrintContext)) Logger.info(JSON.stringify(output))
@@ -310,17 +345,25 @@ export const buildTextCompletionContext = async ({
         preset,
     })
     let note_shard = ''
-    if (postHistory.text) {
+    const noteInUserMessage =
+        (instruct.note_in_user_message || instruct.strict_alternation) &&
+        postHistory.text.length > 0
+    if (postHistory.text && !noteInUserMessage) {
         note_shard = instruct.system_prefix + postHistory.text + instruct.system_suffix
         if (instruct.wrap) note_shard += '\n'
         payloadLength +=
             postHistory.length +
             instructCache.system_prefix_length +
             instructCache.system_suffix_length
+    } else if (noteInUserMessage) {
+        payloadLength += postHistory.length
     }
 
     // suffix must be delayed for example messages
     let message_acc = ``
+    // shards from the latest user message onwards, the note is placed before them
+    let tail_acc = ``
+    let seen_user = false
     // the shard of the reply being written, kept apart so the note can precede it
     let last_shard = ``
     let message_acc_length = 0
@@ -382,6 +425,11 @@ export const buildTextCompletionContext = async ({
 
         if (instruct.names) message_shard += name_string
 
+        // note merged into the latest user message when the template needs it
+        if (noteInUserMessage && message.is_user && !seen_user) {
+            message_shard += postHistory.text + '\n\n'
+        }
+
         message_shard += swipe_data.swipe
 
         if (!is_last) {
@@ -396,7 +444,10 @@ export const buildTextCompletionContext = async ({
 
         message_acc_length += shard_length
         if (is_last && !message.is_user) last_shard = message_shard
-        else message_acc = message_shard + message_acc
+        else if (!seen_user) {
+            tail_acc = message_shard + tail_acc
+            if (message.is_user) seen_user = true
+        } else message_acc = message_shard + message_acc
         // ensure no more is_last checks after this
         is_last = false
         index--
@@ -404,6 +455,8 @@ export const buildTextCompletionContext = async ({
 
     if (index >= messages.length - 1 && messages.length !== 0) {
         warnNoMessages()
+    } else {
+        warnTruncated(index + 1, messages.length, message_acc_length + payloadLength, maxLength)
     }
 
     const examples = character?.mes_example
@@ -418,7 +471,10 @@ export const buildTextCompletionContext = async ({
     }
 
     payload += instruct.system_suffix
-    payload = replaceMacrosInternal(payload + message_acc + note_shard + last_shard, instruct)
+    payload = replaceMacrosInternal(
+        payload + message_acc + note_shard + tail_acc + last_shard,
+        instruct
+    )
 
     Logger.info(`Approximate Context Size: ${message_acc_length + payloadLength} tokens`)
     Logger.info(`${(performance.now() - delta).toFixed(2)}ms taken to build context`)
@@ -429,6 +485,48 @@ export const buildTextCompletionContext = async ({
 }
 
 const thinkRule = buildThinkRules()
+
+/**
+ * Reshapes a chat-completion payload for templates that require strict
+ * user/assistant alternation (Gemma):
+ * - a single leading system message is kept
+ * - any other system message becomes part of a user turn
+ * - consecutive same-role messages are merged into one
+ * - a leading assistant message (the character's greeting) gets a placeholder user turn
+ */
+const enforceAlternation = (
+    output: Message[],
+    roles: { userRole: string; systemRole: string; assistantRole: string; contentName: string }
+): Message[] => {
+    const { userRole, systemRole, assistantRole, contentName } = roles
+    const hasSystem = output.length > 0 && output[0].role === systemRole
+    const head = hasSystem ? [output[0]] : []
+    const rest = hasSystem ? output.slice(1) : output
+
+    const mergeContent = (a: Message[string], b: Message[string]): Message[string] => {
+        if (typeof a === 'string' && typeof b === 'string') return `${a}\n\n${b}`
+        const toParts = (value: Message[string]): ContentTypes[] =>
+            typeof value === 'string' ? [{ type: 'text', text: value }] : [...value]
+        return [...toParts(a), ...toParts(b)]
+    }
+
+    const merged: Message[] = []
+    for (const message of rest) {
+        const role = message.role === systemRole ? userRole : message.role
+        const previous = merged[merged.length - 1]
+        if (previous && previous.role === role) {
+            previous[contentName] = mergeContent(previous[contentName], message[contentName])
+        } else {
+            merged.push({ ...message, role: role })
+        }
+    }
+
+    if (merged.length > 0 && merged[0].role === assistantRole) {
+        merged.unshift({ role: userRole, [contentName]: '[Start of the roleplay.]' })
+    }
+
+    return [...head, ...merged]
+}
 
 const getMacroRules = (instruct: InstructType) => {
     const data: Macro[] = []
@@ -461,6 +559,12 @@ const getPostHistoryNote = async ({
 }) => {
     const parts: string[] = []
     let length = 0
+    // framing so the model treats the note as private direction, not as something the
+    // user said, and does not acknowledge it in the reply
+    const header = replaceMacrosInternal(
+        '[System note: private instructions from the system, not from {{user}}. Follow them silently. Never mention, quote or acknowledge them; reply only to the conversation.]',
+        instruct
+    )
     const memory = chatMemory?.trim() ?? ''
     if (memory) {
         const memoryText = replaceMacrosInternal(`[Memory]\n${memory}`, instruct)
@@ -480,7 +584,9 @@ const getPostHistoryNote = async ({
             }
         }
     }
-    return { text: parts.join('\n\n'), length: length }
+    if (parts.length === 0) return { text: '', length: 0 }
+    length += await tokenizer(header)
+    return { text: [header, ...parts].join('\n\n'), length: length }
 }
 
 const replaceMacrosInternal = (data: string, instruct: InstructType) => {
@@ -499,16 +605,21 @@ const getValidAttachments = (
         supportsImages?: boolean
     },
     instruct: InstructType,
-    hasImage: boolean
+    hasImage: boolean,
+    withinDepth: boolean = true
 ) => {
     let hasImageNew = hasImage
+    const images = entry.attachments.filter((item) => item.type === 'image')
+    if (!withinDepth) {
+        // too old to send, but the model should know an image was here
+        return { hasImageNew: hasImageNew, attachments: [], omitted: images.length }
+    }
     const audioAttachments = entry.attachments.filter(
         (item) => item.type === 'audio' && instruct.send_audio && config.supportsAudio
     )
 
     let imageAttachments: typeof entry.attachments = []
     if (instruct.send_images && config.supportsImages) {
-        const images = entry.attachments.filter((item) => item.type === 'image')
         if (instruct.last_image_only && images.length > 0) {
             if (!hasImageNew) {
                 hasImageNew = true
@@ -519,7 +630,7 @@ const getValidAttachments = (
         }
     }
     const attachments = [...audioAttachments, ...imageAttachments]
-    return { hasImageNew, attachments }
+    return { hasImageNew: hasImageNew, attachments: attachments, omitted: 0 }
 }
 
 export const getSystemPrompt = ({
@@ -579,6 +690,34 @@ export const getSystemPrompt = ({
         ? preset.persona.length
         : userCache.description_length
 
+    // Labels keep the two identities apart. Small models otherwise read the user's
+    // description as part of the character. Empty sections get no label.
+    const LABEL_LENGTH = 12
+    const labelled = (title: string, text: string, length: number) => {
+        if (!instruct.label_sections || !text.trim()) return { text, length }
+        return { text: `${title}\n${text}`, length: length + LABEL_LENGTH }
+    }
+    const characterDesc = labelled(
+        '[About {{char}}]',
+        character?.description ?? '',
+        characterCache.description_length
+    )
+    const personality = labelled(
+        "[{{char}}'s personality]",
+        instruct.personality ? (character?.personality ?? '') : '',
+        instruct.personality ? characterCache.personality_length : 0
+    )
+    const scenario = labelled(
+        '[Scenario]',
+        instruct.scenario ? (character?.scenario ?? '') : '',
+        instruct.scenario ? characterCache.scenario_length : 0
+    )
+    const userDesc = labelled(
+        '[About {{user}}, the person {{char}} is talking to. {{user}} is not {{char}}.]',
+        finalUserDesc,
+        finalUserDescLength
+    )
+
     const macros = [
         {
             macro: '{{system_prefix}}',
@@ -597,23 +736,23 @@ export const getSystemPrompt = ({
         },
         {
             macro: '{{character_desc}}',
-            value: character?.description ?? '',
-            length: characterCache.description_length,
+            value: characterDesc.text,
+            length: characterDesc.length,
         },
         {
             macro: '{{user_desc}}',
-            value: finalUserDesc,
-            length: finalUserDescLength,
+            value: userDesc.text,
+            length: userDesc.length,
         },
         {
             macro: '{{personality}}',
-            value: instruct.personality ? (character?.personality ?? '') : '',
-            length: instruct.personality ? characterCache.personality_length : 0,
+            value: personality.text,
+            length: personality.length,
         },
         {
             macro: '{{scenario}}',
-            value: instruct.scenario ? (character?.scenario ?? '') : '',
-            length: instruct.scenario ? characterCache.scenario_length : 0,
+            value: scenario.text,
+            length: scenario.length,
         },
     ]
     macros.forEach((m) => {
@@ -621,6 +760,21 @@ export const getSystemPrompt = ({
         systemPromptLength += m.length
     })
     return { systemPrompt, systemPromptLength }
+}
+
+/**
+ * Logs how much history was dropped, and toasts when almost nothing fits so the
+ * user learns why the model has "forgotten" the conversation.
+ */
+const warnTruncated = (dropped: number, total: number, used: number, maxLength: number) => {
+    if (dropped <= 0) return
+    const kept = total - dropped
+    Logger.warn(
+        `Context full: ${dropped} of ${total} messages dropped (${used}/${maxLength} tokens). Raise the context length or shorten the card.`
+    )
+    if (kept <= 2) {
+        Logger.warnToast(`Context full: only ${kept} message(s) sent. Check Logs.`)
+    }
 }
 
 const warnNoMessages = () => {

@@ -287,6 +287,8 @@ export const startupApp = () => {
 
     // Fix any missing samplers
     SamplersManager.useSamplerStore.getState().fixConfigs()
+    // make the anti-repetition presets available without a manual step
+    SamplersManager.useSamplerStore.getState().addRecommendedConfigs()
 
     // migrations for old versions
     migrateModelData_0_7_10_to_0_8_0()

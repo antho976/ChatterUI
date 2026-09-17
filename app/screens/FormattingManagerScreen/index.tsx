@@ -11,6 +11,7 @@ import ThemedButton from '@components/buttons/ThemedButton'
 import DropdownSheet from '@components/input/DropdownSheet'
 import StringArrayEditor from '@components/input/StringArrayEditor'
 import ThemedCheckbox from '@components/input/ThemedCheckbox'
+import ThemedSlider from '@components/input/ThemedSlider'
 import ThemedSwitch from '@components/input/ThemedSwitch'
 import ThemedTextInput from '@components/input/ThemedTextInput'
 import SectionTitle from '@components/text/SectionTitle'
@@ -475,6 +476,36 @@ const FormattingManager = () => {
                                 }}
                             />
                             <ThemedCheckbox
+                                label="Label Card Sections"
+                                value={currentInstruct.label_sections}
+                                onChangeValue={(b) => {
+                                    setCurrentInstruct({
+                                        ...currentInstruct,
+                                        label_sections: b,
+                                    })
+                                }}
+                            />
+                            <ThemedCheckbox
+                                label="Rules In User Message"
+                                value={currentInstruct.note_in_user_message}
+                                onChangeValue={(b) => {
+                                    setCurrentInstruct({
+                                        ...currentInstruct,
+                                        note_in_user_message: b,
+                                    })
+                                }}
+                            />
+                            <ThemedCheckbox
+                                label="Strict Role Alternation"
+                                value={currentInstruct.strict_alternation}
+                                onChangeValue={(b) => {
+                                    setCurrentInstruct({
+                                        ...currentInstruct,
+                                        strict_alternation: b,
+                                    })
+                                }}
+                            />
+                            <ThemedCheckbox
                                 label="Use Post-History Rules"
                                 value={currentInstruct.use_post_history}
                                 onChangeValue={(b) => {
@@ -489,7 +520,11 @@ const FormattingManager = () => {
                     <Text style={{ color: color.text._500, fontSize: 12, marginTop: 4 }}>
                         Card System Prompt replaces the System Prompt above when a character defines
                         one ({'{{original}}'} inserts it). Post-History Rules and Chat Memory are
-                        sent after the chat history so the model follows them closely.
+                        sent after the chat history so the model follows them closely. Enable Rules
+                        In User Message for models whose template rejects a system message mid-chat
+                        (Gemma). Strict Role Alternation merges same-role messages and adds a
+                        placeholder user turn before a greeting, for templates that reject anything
+                        but user/assistant/user (Gemma with --jinja).
                     </Text>
 
                     <SectionTitle>Attachments</SectionTitle>
@@ -545,6 +580,25 @@ const FormattingManager = () => {
                             />
                         </View>
                     </View>
+                    <ThemedSlider
+                        label="Attachment Depth"
+                        value={currentInstruct.attachment_depth}
+                        onValueChange={(value) => {
+                            setCurrentInstruct({
+                                ...currentInstruct,
+                                attachment_depth: value,
+                            })
+                        }}
+                        min={0}
+                        max={20}
+                        step={1}
+                        precision={0}
+                    />
+                    <Text style={{ color: color.text._500, fontSize: 12 }}>
+                        Images and audio are only sent from the last N messages, so an old picture
+                        is not re-read on every turn. Older messages keep a short note that an image
+                        was attached. 0 sends attachments from any message.
+                    </Text>
 
                     <View style={{ rowGap: 8 }}>
                         <SectionTitle>Text Formatter</SectionTitle>

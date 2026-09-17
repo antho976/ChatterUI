@@ -1,0 +1,1 @@
+ALTER TABLE `instructs` ADD `attachment_depth` integer DEFAULT 2 NOT NULL;

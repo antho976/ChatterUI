@@ -296,6 +296,26 @@ export const instructs = sqliteTable('instructs', {
         .notNull()
         .default(true),
     use_post_history: integer('use_post_history', { mode: 'boolean' }).notNull().default(true),
+
+    // additions 16/9/2026 v9
+    // label the character / user sections so small models do not merge the two identities
+    label_sections: integer('label_sections', { mode: 'boolean' }).notNull().default(true),
+
+    // additions 16/9/2026 v10
+    // send rules + memory inside the latest user message instead of as a system message,
+    // for templates (Gemma) that reject a system message mid-conversation
+    note_in_user_message: integer('note_in_user_message', { mode: 'boolean' })
+        .notNull()
+        .default(false),
+
+    // additions 16/9/2026 v11
+    // attachments are only sent from the last N messages; 0 sends them from any message
+    attachment_depth: integer('attachment_depth').notNull().default(2),
+
+    // additions 16/9/2026 v12
+    // merge same-role messages and lead with a user turn, for templates that enforce
+    // strict user/assistant alternation (Gemma)
+    strict_alternation: integer('strict_alternation', { mode: 'boolean' }).notNull().default(false),
 })
 
 // LOREBOOKS

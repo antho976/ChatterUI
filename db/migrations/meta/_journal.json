@@ -141,6 +141,34 @@
       "when": 1789533778164,
       "tag": "0019_rich_sebastian_shaw",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "6",
+      "when": 1789538605357,
+      "tag": "0020_nice_miracleman",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "6",
+      "when": 1789545366961,
+      "tag": "0021_tricky_fixer",
+      "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "6",
+      "when": 1789547829477,
+      "tag": "0022_dazzling_susan_delgado",
+      "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "6",
+      "when": 1789552196065,
+      "tag": "0023_cool_squadron_supreme",
+      "breakpoints": true
     }
   ]
 }
