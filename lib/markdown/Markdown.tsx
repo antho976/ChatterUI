@@ -1,8 +1,10 @@
 import { setStringAsync } from 'expo-clipboard'
-import { useCallback, useMemo } from 'react'
-import { Platform, StyleSheet, Text, View } from 'react-native'
+import { Image } from 'expo-image'
+import { t } from 'i18next'
+import { RaTeXView } from 'ratex-react-native'
+import React, { ReactNode, useCallback, useMemo, useState } from 'react'
+import { Platform, StyleSheet, Text, useWindowDimensions, View } from 'react-native'
 import { MarkdownIt } from 'react-native-markdown-display'
-import MathJax from 'react-native-mathjax-svg'
 
 import ThemedButton from '@components/buttons/ThemedButton'
 import Accordion from '@components/views/Accordion'
@@ -14,13 +16,102 @@ import latexPlugin from './MarkdownLatexPlugin'
 import doubleQuotePlugin from './MarkdownQuotePlugin'
 import thinkPlugin from './MarkdownThinkPlugin'
 
+const getDeepASTDirection = (astNode: any): 'ltr' | 'rtl' | 'neutral' => {
+    if (!astNode) return 'neutral'
+
+    // Explicitly flag softbreaks or hardbreaks as neutral
+    if (
+        astNode.type === 'softbreak' ||
+        astNode.type === 'hardbreak' ||
+        astNode.type === 'double_quote'
+    ) {
+        return 'neutral'
+    }
+
+    if (astNode.type === 'text' && typeof astNode.content === 'string') {
+        // If it's pure whitespace/newlines, it's neutral
+        if (!astNode.content.trim()) return 'neutral'
+
+        const rtlRegex = /[\u0591-\u07FF\uFB1D-\uFDFD\uFE70-\uFEFC]/
+        return rtlRegex.test(astNode.content) ? 'rtl' : 'ltr'
+    }
+
+    if (Array.isArray(astNode.children)) {
+        for (const childNode of astNode.children) {
+            const dir = getDeepASTDirection(childNode)
+            if (dir !== 'neutral') return dir // Return the first concrete direction found
+        }
+    }
+
+    return 'neutral'
+}
+
+const ImageAdapter = ({
+    node,
+    children,
+    parent,
+    styles,
+    allowedImageHandlers,
+    defaultImageHandler,
+}: {
+    node: any
+    children: any
+    parent: any
+    styles: any
+    allowedImageHandlers: any
+    defaultImageHandler: any
+}) => {
+    const [imageData, setImageData] = useState({ height: 0, aspectRatio: 1 })
+    const { src, alt } = node.attributes
+
+    const { width } = useWindowDimensions()
+    // we check that the source starts with at least one of the elements in allowedImageHandlers
+    const show =
+        allowedImageHandlers.filter((value: string) => {
+            return src.toLowerCase().startsWith(value.toLowerCase())
+        }).length > 0
+
+    if (show === false && defaultImageHandler === null) {
+        return null
+    }
+
+    const imageProps: any = {
+        indicator: true,
+        style: styles._VIEW_SAFE_image,
+        source: { uri: src },
+    }
+
+    if (alt) {
+        imageProps.accessible = true
+        imageProps.accessibilityLabel = alt
+    }
+
+    return (
+        <View style={{ height: imageData.height }}>
+            <Image
+                key={node.key}
+                {...imageProps}
+                width={imageData.height}
+                aspectRatio={imageData.aspectRatio}
+                onLoad={(data) => {
+                    setImageData({
+                        height: Math.min(width - 100, data.source.width),
+                        aspectRatio: data.source.width / data.source.height,
+                    })
+                }}
+                contentFit="contain"
+            />
+        </View>
+    )
+}
+
 export namespace MarkdownStyle {
     export const Rules = MarkdownIt({ typographer: true })
         .use(thinkPlugin)
         .use(doubleQuotePlugin)
         .use(latexPlugin)
 
-    export const RenderRules = {
+    export const RenderRules: Record<string, (...props: any) => ReactNode> = {
         fence: (node: any, children: any, parent: any, styles: any, inheritedStyles = {}) => {
             let { content, sourceInfo } = node
             if (
@@ -43,10 +134,14 @@ export namespace MarkdownStyle {
                                 onPress={() => {
                                     setStringAsync(content)
                                         .then(() => {
-                                            Logger.infoToast('Copied Code')
+                                            Logger.infoToast(
+                                                t('chat.quickActions.toast.copiedCode')
+                                            )
                                         })
                                         .catch(() => {
-                                            Logger.errorToast('Failed to copy to clipboard')
+                                            Logger.errorToast(
+                                                t('chat.quickActions.toast.copyFailed')
+                                            )
                                         })
                                 }}
                             />
@@ -57,9 +152,24 @@ export namespace MarkdownStyle {
             )
         },
         double_quote: (node: any, children: any, parent: any, styles: any) => {
+            const quotes = {
+                english: ['“', '”'],
+                low9: ['„', '”'],
+                reversed9: ['‟', '”'],
+                ascii: ['"', '"'],
+                guillemet: ['«', '»'],
+            }
+
+            const quoteType = (node.sourceMeta?.quoteType ??
+                node.meta?.quoteType ??
+                'english') as keyof typeof quotes
+            let [open, close] = quotes[quoteType] || quotes.english
+            if (node.sourceMeta?.dangling) close = ''
             return (
                 <Text key={node.key} style={styles.double_quote}>
-                    “{children}”
+                    {open}
+                    {children}
+                    {close}
                 </Text>
             )
         },
@@ -80,23 +190,126 @@ export namespace MarkdownStyle {
         latex_block: (node: any, children: any, parent: any, styles: any) => {
             const { content } = node
             return (
-                <MathJax
+                <RaTeXView
+                    latex={content ?? ''}
                     key={node.key}
                     style={styles.latex_block}
-                    color={styles.latex_block.color ?? 'white'}>
-                    {content}
-                </MathJax>
+                    color={styles.latex_block.color ?? 'white'}
+                />
             )
         },
         latex_inline: (node: any, children: any, parent: any, styles: any) => {
             const { content } = node
             return (
-                <MathJax
+                <RaTeXView
+                    latex={content ?? ''}
                     key={node.key}
-                    style={styles.latex_inline}
-                    color={styles.latex_inline.color ?? 'white'}>
-                    {content}
-                </MathJax>
+                    style={styles.latex_block}
+                    color={styles.latex_block.color ?? 'white'}
+                />
+            )
+        },
+
+        textgroup: (node: any, children: any, parent: any, styles: any) => {
+            const astChildrenArray = node.children || []
+            const renderedChildrenArray = React.Children.toArray(children)
+
+            const componentRuns: any[] = []
+            let currentRunAst: any[] = []
+            let currentRunRendered: any[] = []
+
+            // Start with a fallback default, but it will update on the first non-neutral node
+            let currentDir: 'ltr' | 'rtl' = 'ltr'
+            let isFirstNode = true
+            astChildrenArray.forEach((astChild: any, index: number) => {
+                const renderedChild = renderedChildrenArray[index]
+                if (!renderedChild) return
+
+                let childDir = getDeepASTDirection(astChild)
+
+                // If the node is neutral (like a softbreak), force it to adopt the current running direction
+                if (childDir === 'neutral') {
+                    childDir = currentDir
+                }
+
+                if (isFirstNode) {
+                    currentDir = childDir
+                    isFirstNode = false
+                    currentRunAst.push(astChild)
+                    currentRunRendered.push(renderedChild)
+                } else if (childDir === currentDir) {
+                    currentRunAst.push(astChild)
+                    currentRunRendered.push(renderedChild)
+                } else {
+                    // A genuine direction switch happened (LTR <-> RTL)
+                    componentRuns.push({
+                        direction: currentDir,
+                        renderedChildren: currentRunRendered,
+                    })
+                    currentDir = childDir
+                    currentRunAst = [astChild]
+                    currentRunRendered = [renderedChild]
+                }
+            })
+
+            if (currentRunRendered.length > 0) {
+                componentRuns.push({
+                    direction: currentDir,
+                    renderedChildren: currentRunRendered,
+                })
+            }
+
+            return (
+                <View key={node.key} style={{ width: '100%', flexWrap: 'wrap' }}>
+                    {componentRuns.map((run, index) => {
+                        const isRtl = run.direction === 'rtl'
+
+                        return (
+                            <Text
+                                key={`run-${index}`}
+                                style={[
+                                    styles.textgroup,
+                                    {
+                                        flexWrap: 'wrap',
+                                        width: '100%',
+                                        writingDirection: run.direction,
+                                        textAlign: isRtl ? 'right' : 'left',
+                                    },
+                                ]}>
+                                {isRtl ? '\u2067' : '\u2066'}
+                                {run.renderedChildren}
+                                {'\u2069'}
+                            </Text>
+                        )
+                    })}
+                </View>
+            )
+        },
+        inline: (node: any, children: any, parent: any, styles: any) => {
+            return (
+                <Text key={node.key} style={[styles.inline, { flexWrap: 'wrap', width: '100%' }]}>
+                    {children}
+                </Text>
+            )
+        },
+        image: (
+            node: any,
+            children: any,
+            parent: any,
+            styles: any,
+            allowedImageHandlers: any,
+            defaultImageHandler: any
+        ) => {
+            return (
+                <ImageAdapter
+                    key={node.key}
+                    node={node}
+                    parent={parent}
+                    styles={styles}
+                    allowedImageHandlers={allowedImageHandlers}
+                    defaultImageHandler={defaultImageHandler}>
+                    {children}
+                </ImageAdapter>
             )
         },
     }
@@ -141,7 +354,9 @@ export namespace MarkdownStyle {
                 StyleSheet.create({
                     double_quote: { color: color.quote },
                     // The main container
-                    body: {},
+                    body: {
+                        textAlign: 'auto',
+                    },
 
                     // Headings
                     heading1: {
@@ -352,6 +567,8 @@ export namespace MarkdownStyle {
                     // Images
                     image: {
                         flex: 1,
+                        minWidth: 30,
+                        minHeight: 30,
                     },
 
                     // Text Output
@@ -360,21 +577,21 @@ export namespace MarkdownStyle {
                     textgroup: {
                         fontWeight: getModifiedFontWeight(400),
                         color: color.text._100,
+                        width: '100%',
                     },
                     latex_inline: {
                         color: color.text._300,
+                        fontSize: getModifiedFontSize(16),
                     },
                     latex_block: {
                         color: color.text._300,
+                        fontSize: getModifiedFontSize(16),
                         marginTop: spacing.l,
                         marginBottom: spacing.sm,
                     },
                     paragraph: {
                         flexWrap: 'wrap',
-                        flexDirection: 'row',
-                        alignItems: 'flex-start',
-                        justifyContent: 'flex-start',
-                        width: '100%',
+                        textAlign: 'auto',
                         color: color.text._100,
                         marginVertical: spacing.sm,
                         fontSize: getModifiedFontSize(14),

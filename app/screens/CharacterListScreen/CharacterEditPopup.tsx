@@ -1,12 +1,16 @@
 import { usePathname, useRouter } from 'expo-router'
 import { ReactNode } from 'react'
+import { useTranslation } from 'react-i18next'
 import { View } from 'react-native'
 
 import Alert from '@components/views/Alert'
 import ContextMenu from '@components/views/ContextMenu'
+import { APIManager } from '@lib/engine/API/APIManagerState'
 import { CharInfo, Characters } from '@lib/state/Characters'
 import { Chats } from '@lib/state/Chat'
+import { Instructs } from '@lib/state/Instructs'
 import { Logger } from '@lib/state/Logger'
+import { SamplersManager } from '@lib/state/SamplerState'
 
 type CharacterEditPopupProps = {
     character: CharInfo
@@ -21,29 +25,56 @@ const CharacterEditPopup: React.FC<CharacterEditPopupProps> = ({
     nowLoading,
     children,
 }) => {
+    const { t } = useTranslation()
     const path = usePathname()
     const router = useRouter()
 
-    const { loadChat } = Chats.useChat()
+    const { setId } = Chats.useChat()
+    const setUser = Characters.useUserStore((state) => state.setCard)
+    const setInstruct = Instructs.useInstruct((state) => state.load)
+    const setConnectionIndex = APIManager.useConnectionsStore((state) => state.setActiveIndex)
+    const setSampler = SamplersManager.useSamplerStore((state) => state.setConfig)
 
     const setCurrentCharacter = async () => {
         if (nowLoading || path === '/screens/ChatScreen' || !character.id) return
         try {
             setNowLoading(true)
             await setCurrentCard(character.id)
+            character?.links.forEach((item) => {
+                switch (item.type) {
+                    case 'user_id':
+                        Logger.info(t('character.editor.links.loadUser', { value: item.value }))
+                        setUser(item.value)
+                        break
+                    case 'instruct_id':
+                        Logger.info(t('character.editor.links.loadInstruct', { value: item.value }))
+                        setInstruct(item.value)
+                        break
+                    case 'connection_index':
+                        Logger.info(
+                            t('character.editor.links.loadConnection', { value: item.value })
+                        )
+                        setConnectionIndex(item.value)
+                        break
+                    case 'sampler_index':
+                        Logger.info(t('character.editor.links.loadSampler', { value: item.value }))
+                        setSampler(item.value)
+                        break
+                }
+            })
             let chatId = character.latestChat
             if (!chatId) {
                 chatId = await Chats.db.mutate.createChat(character.id)
             }
             if (!chatId) {
-                Logger.errorToast('Chat creation backup has failed! Please report.')
+                Logger.errorToast(t('character.list.errors.chatCreationFailed'))
                 return
             }
-            await loadChat(chatId)
+            await setId(chatId)
             setNowLoading(false)
             router.push('/screens/ChatScreen')
         } catch (error) {
-            Logger.errorToast(`Couldn't load character: ${error}`)
+            Logger.errorToast(t('character.list.errors.load', { error }))
             setNowLoading(false)
         }
     }
@@ -53,14 +84,16 @@ const CharacterEditPopup: React.FC<CharacterEditPopupProps> = ({
     const deleteCard = (close: () => void) => {
         close()
         Alert.alert({
-            title: 'Delete Character',
-            description: `Are you sure you want to delete '${character.name}'?\nThis cannot be undone.`,
+            title: t('character.editor.dialogs.deleteCharacter.title'),
+            description: t('character.editor.dialogs.deleteCharacter.description', {
+                name: character.name,
+            }),
             buttons: [
                 {
-                    label: 'Cancel',
+                    label: t('common.actions.cancel'),
                 },
                 {
-                    label: 'Delete Character',
+                    label: t('character.editor.dialogs.deleteCharacter.confirm'),
                     onPress: async () => {
                         Characters.db.mutate.deleteCard(character.id ?? -1)
                     },
@@ -73,14 +106,14 @@ const CharacterEditPopup: React.FC<CharacterEditPopupProps> = ({
     const cloneCard = (close: () => void) => {
         close()
         Alert.alert({
-            title: 'Clone Character',
-            description: `Are you sure you want to clone '${character.name}'?`,
+            title: t('character.editor.dialogs.clone.title'),
+            description: t('character.editor.dialogs.clone.description', { name: character.name }),
             buttons: [
                 {
-                    label: 'Cancel',
+                    label: t('common.actions.cancel'),
                 },
                 {
-                    label: 'Clone Character',
+                    label: t('character.editor.dialogs.clone.confirm'),
                     onPress: async () => {
                         setNowLoading(true)
                         await Characters.db.mutate.duplicateCard(character.id)
@@ -108,9 +141,14 @@ const CharacterEditPopup: React.FC<CharacterEditPopupProps> = ({
             longPress
             delayLongPress={300}
             buttons={[
-                { label: 'Edit', icon: 'edit', onPress: editCharacter },
-                { label: 'Clone', icon: 'copy', onPress: cloneCard },
-                { label: 'Delete', icon: 'delete', onPress: deleteCard, variant: 'warning' },
+                { label: t('common.actions.edit'), icon: 'edit', onPress: editCharacter },
+                { label: t('common.actions.clone'), icon: 'copy', onPress: cloneCard },
+                {
+                    label: t('common.actions.delete'),
+                    icon: 'delete',
+                    onPress: deleteCard,
+                    variant: 'warning',
+                },
             ]}
             placement="center">
             <View pointerEvents="none">{children}</View>

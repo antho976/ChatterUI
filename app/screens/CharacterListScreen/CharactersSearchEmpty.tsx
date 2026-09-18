@@ -1,9 +1,11 @@
-import { Ionicons } from '@expo/vector-icons'
+import Octicons from '@react-native-vector-icons/octicons/static'
+import { useTranslation } from 'react-i18next'
 import { Text, View } from 'react-native'
 
 import { Theme } from '@lib/theme/ThemeManager'
 
 const CharSearchEmpty = () => {
+    const { t } = useTranslation()
     const { color, spacing, fontSize } = Theme.useTheme()
     return (
         <View
@@ -14,7 +16,7 @@ const CharSearchEmpty = () => {
                 alignItems: 'center',
                 marginTop: spacing.xl3,
             }}>
-            <Ionicons name="search" color={color.text._400} size={60} />
+            <Octicons name="search" color={color.text._400} size={60} />
             <Text
                 style={{
                     color: color.text._400,
@@ -22,7 +24,7 @@ const CharSearchEmpty = () => {
                     fontStyle: 'italic',
                     fontSize: fontSize.l,
                 }}>
-                No Characters Match Search Result
+                {t('character.list.emptyStates.noCharactersMatch')}
             </Text>
         </View>
     )

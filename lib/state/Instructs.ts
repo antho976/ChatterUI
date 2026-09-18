@@ -1,12 +1,14 @@
 import { eq } from 'drizzle-orm'
+import { t } from 'i18next'
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 
-import { db as database } from '@db'
+import { db as database } from '@db/db'
+import { instructs } from '@db/schema'
 import { Tokenizer } from '@lib/engine/Tokenizer'
 import { Storage } from '@lib/enums/Storage'
-import { instructs } from 'db/schema'
 
+import { CharacterLink } from './CharacterLinks'
 import { Characters } from './Characters'
 import { Logger } from './Logger'
 import { replaceMacros } from '../state/Macros'
@@ -288,7 +290,7 @@ export namespace Instructs {
                     const baseInstruct = get().data
 
                     if (!baseInstruct) {
-                        Logger.errorToast('Something wrong happened with Instruct data')
+                        Logger.errorToast(t('formatting.errors.instructDataError'))
                         return Instructs.defaultInstruct
                     }
 
@@ -456,6 +458,7 @@ export namespace Instructs {
 
             export const deleteInstruct = async (id: number) => {
                 await database.delete(instructs).where(eq(instructs.id, id))
+                await CharacterLink.db.mutate.deleteByValue('instruct_id', id)
             }
         }
     }

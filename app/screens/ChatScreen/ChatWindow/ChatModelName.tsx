@@ -1,12 +1,14 @@
-import { Ionicons } from '@expo/vector-icons'
+import AntDesign from '@react-native-vector-icons/ant-design/static'
 import { useRouter } from 'expo-router'
 import React from 'react'
-import { View, Text, TouchableOpacity } from 'react-native'
+import { useTranslation } from 'react-i18next'
+import { Text, TouchableOpacity, View } from 'react-native'
 
 import { Llama } from '@lib/engine/Local/LlamaLocal'
 import { Theme } from '@lib/theme/ThemeManager'
 
 const ChatModelName = () => {
+    const { t } = useTranslation()
     const model = Llama.useLlamaModelStore((state) => state.model)
     const { color, spacing, borderRadius } = Theme.useTheme()
 
@@ -30,12 +32,12 @@ const ChatModelName = () => {
                     flex: 1,
                     color: model ? color.primary._700 : color.text._400,
                 }}>
-                {model ? model.name : 'No Model Loaded'}
+                {model ? model.name : t('chat.model.noModelLoaded')}
             </Text>
             <TouchableOpacity
                 onPress={() => router.push('/screens/ModelManagerScreen')}
                 style={{ paddingLeft: spacing.xl2, paddingVertical: spacing.m }}>
-                <Ionicons name="caret-forward" color={color.primary._500} size={18} />
+                <AntDesign name="caret-right" color={color.primary._500} size={18} />
             </TouchableOpacity>
         </View>
     )

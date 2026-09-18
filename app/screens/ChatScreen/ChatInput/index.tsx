@@ -1,9 +1,11 @@
-import { MaterialIcons } from '@expo/vector-icons'
+import MaterialIcons from '@react-native-vector-icons/material-icons/static'
 import { randomUUID } from 'expo-crypto'
-import { getDocumentAsync } from 'expo-document-picker'
 import { Image } from 'expo-image'
-import React, { useState } from 'react'
-import { Text, TextInput, TouchableOpacity, View } from 'react-native'
+import { launchImageLibraryAsync, requestMediaLibraryPermissionsAsync } from 'expo-image-picker'
+import { router } from 'expo-router'
+import { useState } from 'react'
+import { useTranslation } from 'react-i18next'
+import { Keyboard, Pressable, Text, TextInput, TouchableOpacity, View } from 'react-native'
 import { useMMKVBoolean } from 'react-native-mmkv'
 import Animated, {
     BounceIn,
@@ -16,11 +18,14 @@ import { create } from 'zustand'
 import { useShallow } from 'zustand/react/shallow'
 
 import ThemedButton from '@components/buttons/ThemedButton'
+import Alert from '@components/views/Alert'
+import { useBottomSheetRef } from '@components/views/BottomSheet'
 import CameraSheet from '@components/views/CameraSheet'
 import ContextMenu from '@components/views/ContextMenu'
 import { XAxisOnlyTransition } from '@lib/animations/transitions'
 import { AppSettings } from '@lib/constants/GlobalValues'
 import { continueResponse, generateResponse } from '@lib/engine/Inference'
+import { useActiveProvider } from '@lib/hooks/ActiveProvider'
 import { useUnfocusTextInput } from '@lib/hooks/UnfocusTextInput'
 import { Characters } from '@lib/state/Characters'
 import { Chats, useInference } from '@lib/state/Chat'
@@ -49,15 +54,16 @@ export const useInputHeightStore = create<ChatInputHeightStoreProps>()((set) => 
 }))
 
 const ChatInput = () => {
+    const { t } = useTranslation()
     const inputRef = useUnfocusTextInput()
-
+    const { available: activeProvider, mode } = useActiveProvider()
     const { color, borderRadius, spacing } = Theme.useTheme()
     const [sendOnEnter] = useMMKVBoolean(AppSettings.SendOnEnter)
+    const [disableSend, setDisableSend] = useState(false)
     const [attachments, setAttachments] = useState<Attachment[]>([])
     const [hideOptions, setHideOptions] = useState(false)
-    const [showCamera, setShowCamera] = useState(false)
-    const { addEntry } = Chats.useEntry()
-    const isGhost = Chats.useChatState(useShallow((state) => state.data?.ghost ?? false))
+    const cameraSheetRef = useBottomSheetRef()
+    const isGhost = Chats.useChatState((state) => state.ghost ?? false)
     const { nowGenerating, abortFunction } = useInference(
         useShallow((state) => ({
             nowGenerating: state.nowGenerating,
@@ -72,6 +78,8 @@ const ChatInput = () => {
         }))
     )
 
+    const { chatId } = Chats.useChat()
+
     const { userName } = Characters.useUserStore(
         useShallow((state) => ({ userName: state.card?.name }))
     )
@@ -84,22 +92,34 @@ const ChatInput = () => {
     )
 
     const abortResponse = async () => {
-        Logger.info(`Aborting Generation`)
+        Logger.info(t('chat.input.errors.abortGeneration'))
         if (abortFunction) await abortFunction()
     }
 
     const handleSend = async () => {
+        Keyboard.dismiss()
+        if (!chatId) return
+        setDisableSend(true)
         if (newMessage.trim() !== '' || attachments.length > 0)
-            await addEntry(
+            Chats.db.mutate.createEntry(
+                chatId,
                 userName ?? '',
                 true,
                 newMessage,
                 attachments.map((item) => item.uri)
             )
-        const swipeId = await addEntry(charName ?? '', false, '')
-        setNewMessage('')
-        setAttachments([])
-        if (swipeId) generateResponse(swipeId)
+        try {
+            const result = await Chats.db.mutate.createEntry(chatId, charName ?? '', false, '')
+            setNewMessage('')
+            setAttachments([])
+            const swipeId = result?.swipes?.[0]?.id
+            if (swipeId) generateResponse(swipeId)
+        } catch (e) {
+            Logger.errorToast(t('chat.input.errors.failedToSend'))
+            Logger.error(e)
+        } finally {
+            setDisableSend(false)
+        }
     }
 
     /**
@@ -107,57 +127,85 @@ const ChatInput = () => {
      * An empty trailing reply (e.g. a failed generation) is regenerated instead.
      */
     const handleContinueChat = async () => {
-        if (nowGenerating) return
-        const messages = Chats.useChatState.getState().data?.messages
-        const last = messages?.at(-1)
-        if (!last) return
-        const lastSwipe = last.swipes[last.swipe_id]
-        if (!last.is_user && lastSwipe && lastSwipe.swipe.trim() === '') {
+        if (nowGenerating || !chatId) return
+        const last = await Chats.db.query.chatLatestEntry(chatId)
+        const lastSwipe = last?.swipes[0]
+        if (last && !last.is_user && lastSwipe && lastSwipe.swipe.trim() === '') {
             generateResponse(lastSwipe.id)
             return
         }
-        const swipeId = await addEntry(charName ?? '', false, '')
-        if (swipeId) generateResponse(swipeId)
+        try {
+            const result = await Chats.db.mutate.createEntry(chatId, charName ?? '', false, '')
+            const swipeId = result?.swipes?.[0]?.id
+            if (swipeId) generateResponse(swipeId)
+        } catch (e) {
+            Logger.errorToast(t('chat.input.errors.failedToSend'))
+            Logger.error(e)
+        }
     }
 
     /**
      * Extends the last character reply instead of starting a new one.
      */
     const handleContinueLastMessage = async () => {
-        if (nowGenerating) return
-        const messages = Chats.useChatState.getState().data?.messages
-        const last = messages?.at(-1)
-        if (!last || last.is_user) {
-            Logger.infoToast('Last message is not from the character')
+        if (nowGenerating || !chatId) return
+        const last = await Chats.db.query.chatLatestEntry(chatId)
+        const lastSwipe = last?.swipes[0]
+        if (!last || last.is_user || !lastSwipe) {
+            Logger.infoToast(t('chat.input.continue.notCharacter'))
             return
         }
-        const lastSwipe = last.swipes[last.swipe_id]
-        if (lastSwipe) continueResponse(lastSwipe.id)
+        continueResponse(lastSwipe)
     }
 
     const handlePickImage = async () => {
-        const result = await getDocumentAsync({
-            type: 'image/*',
-            multiple: true,
-            copyToCacheDirectory: true,
+        const permissionResult = await requestMediaLibraryPermissionsAsync()
+
+        if (!permissionResult.granted) {
+            Alert.alert({
+                title: t('common.errors.permissionRequired'),
+                description: t('chat.input.errors.permissionDescription'),
+                buttons: [
+                    {
+                        label: t('common.actions.close'),
+                    },
+                ],
+            })
+            return
+        }
+
+        let result = await launchImageLibraryAsync({
+            mediaTypes: ['images'],
+            allowsMultipleSelection: true,
+            aspect: [4, 3],
+            quality: 1,
         })
-        if (result.canceled || result.assets.length < 1) return
+
+        if (result.canceled) return
 
         const newAttachments = result.assets
             .map((item) => ({
                 uri: item.uri,
                 type: 'image',
-                name: item.name,
+                name: item.fileName,
             }))
             .filter((item) => !attachments.some((a) => a.name === item.name)) as Attachment[]
-        setAttachments([...attachments, ...newAttachments])
+
+        return setAttachments([...attachments, ...newAttachments])
     }
 
     return (
-        <View
+        <Pressable
+            onPress={() => {
+                if (activeProvider) return
+                if (mode === 'local') {
+                    router.push('/screens/ModelManagerScreen')
+                } else router.push('/screens/ConnectionsManagerScreen')
+            }}
             onLayout={(e) => {
                 setHeight(e.nativeEvent.layout.height)
             }}
+            disabled={activeProvider}
             style={{
                 position: 'absolute',
                 width: '98%',
@@ -246,7 +294,7 @@ const ChatInput = () => {
                     }}>
                     <MaterialIcons name="visibility-off" size={16} color={color.text._400} />
                     <Text style={{ color: color.text._400, fontSize: 12 }}>
-                        Ghost chat: erased permanently when you leave
+                        {t('chat.ghost.banner')}
                     </Text>
                 </Animated.View>
             )}
@@ -261,8 +309,7 @@ const ChatInput = () => {
                         },
                     ])
                 }}
-                visible={showCamera}
-                setVisible={setShowCamera}
+                ref={cameraSheetRef}
             />
             <View
                 style={{
@@ -280,21 +327,22 @@ const ChatInput = () => {
                                 columnGap: 8,
                                 alignItems: 'center',
                             }}>
-                            <ChatOptions />
+                            <ChatOptions disabled={!activeProvider} />
                             <ContextMenu
+                                disabled={!activeProvider}
                                 triggerIcon="paper-clip"
                                 triggerIconSize={20}
                                 buttons={[
                                     {
-                                        label: 'Take Picture',
+                                        label: t('chat.input.actions.takePicture'),
                                         icon: 'camera',
                                         onPress: (close) => {
-                                            setShowCamera(true)
+                                            cameraSheetRef.current?.open()
                                             close()
                                         },
                                     },
                                     {
-                                        label: 'Add Image',
+                                        label: t('chat.input.actions.addImage'),
                                         icon: 'picture',
                                         onPress: async (close) => {
                                             close()
@@ -307,6 +355,7 @@ const ChatInput = () => {
                                     padding: 6,
                                     backgroundColor: color.neutral._200,
                                     borderRadius: 16,
+                                    opacity: activeProvider ? 1 : 0.5,
                                 }}
                                 placement="top"
                             />
@@ -339,7 +388,7 @@ const ChatInput = () => {
                         backgroundColor: color.neutral._100,
                         flex: 1,
                         borderWidth: 2,
-                        borderColor: color.primary._300,
+                        borderColor: activeProvider ? color.primary._300 : color.primary._100,
                         borderRadius: borderRadius.l,
                         paddingHorizontal: spacing.m,
                         paddingVertical: spacing.m,
@@ -348,7 +397,14 @@ const ChatInput = () => {
                         setHideOptions(!!newMessage)
                     }}
                     numberOfLines={8}
-                    placeholder="Message..."
+                    placeholder={
+                        activeProvider
+                            ? t('chat.input.message')
+                            : mode === 'local'
+                              ? t('chat.input.noModelLoaded')
+                              : t('chat.input.noConnection')
+                    }
+                    editable={activeProvider}
                     placeholderTextColor={color.text._700}
                     value={newMessage}
                     onChangeText={(text) => {
@@ -359,9 +415,10 @@ const ChatInput = () => {
                     submitBehavior={sendOnEnter ? 'blurAndSubmit' : 'newline'}
                     onSubmitEditing={sendOnEnter ? handleSend : undefined}
                 />
-                {!newMessage && !nowGenerating && (
+                {!newMessage && !nowGenerating && activeProvider && (
                     <Animated.View layout={XAxisOnlyTransition} entering={FadeIn} exiting={FadeOut}>
                         <TouchableOpacity
+                            disabled={!chatId}
                             style={{
                                 borderRadius: borderRadius.m,
                                 backgroundColor: color.neutral._200,
@@ -376,21 +433,32 @@ const ChatInput = () => {
                 )}
                 <Animated.View layout={XAxisOnlyTransition}>
                     <TouchableOpacity
+                        disabled={disableSend || !chatId || !activeProvider}
                         style={{
                             borderRadius: borderRadius.m,
-                            backgroundColor: nowGenerating ? color.error._500 : color.primary._500,
-                            padding: spacing.m,
+                            backgroundColor: !activeProvider
+                                ? color.neutral._100
+                                : nowGenerating
+                                  ? color.error._500
+                                  : color.primary._500,
+                            padding: spacing.s,
+                            borderWidth: 2,
+                            borderColor: !activeProvider
+                                ? color.primary._100
+                                : nowGenerating
+                                  ? color.error._500
+                                  : color.primary._500,
                         }}
                         onPress={nowGenerating ? abortResponse : handleSend}>
                         <MaterialIcons
                             name={nowGenerating ? 'stop' : 'send'}
-                            color={color.neutral._100}
+                            color={activeProvider ? color.neutral._100 : color.text._700}
                             size={24}
                         />
                     </TouchableOpacity>
                 </Animated.View>
             </View>
-        </View>
+        </Pressable>
     )
 }
 

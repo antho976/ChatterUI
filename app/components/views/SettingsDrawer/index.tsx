@@ -1,18 +1,20 @@
 import { useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { Text, TouchableOpacity } from 'react-native'
 import { useMMKVBoolean } from 'react-native-mmkv'
 
+import appConfig from '@appconfig'
 import Drawer from '@components/views/Drawer'
 import { AppSettings } from '@lib/constants/GlobalValues'
 import { Logger } from '@lib/state/Logger'
 import { Theme } from '@lib/theme/ThemeManager'
-import appConfig from 'app.config'
 
 import AppModeToggle from './AppModeToggle'
 import RouteList from './RouteList'
 import UserInfo from './UserInfo'
 
 const SettingsDrawer = () => {
+    const { t } = useTranslation()
     const { color, spacing } = Theme.useTheme()
     const [devMode, setDevMode] = useMMKVBoolean(AppSettings.DevMode)
     const [tapCount, setTapCount] = useState(0)
@@ -23,7 +25,9 @@ const SettingsDrawer = () => {
         if (next >= 7) {
             setTapCount(0)
             setDevMode(!devMode)
-            Logger.infoToast(`Dev mode ${devMode ? 'disabled' : 'enabled'}`)
+            Logger.infoToast(
+                devMode ? t('common.labels.devModeDisabled') : t('common.labels.devModeEnabled')
+            )
             return
         }
         setTapCount(next)
@@ -44,9 +48,8 @@ const SettingsDrawer = () => {
                 onPress={handleVersionTap}
                 style={{ alignSelf: 'center', marginTop: spacing.l, marginBottom: spacing.xl2 }}>
                 <Text style={{ color: color.text._300 }}>
-                    {__DEV__ && 'DEV BUILD\t'}
-                    {devMode && 'DEV MODE\t'}
-                    {'v' + appConfig.expo.version}
+                    {(__DEV__ || devMode) && t('common.labels.devMode') + '\t'}
+                    {t('about.versionPrefix') + appConfig.expo.version}
                 </Text>
             </TouchableOpacity>
         </Drawer.Body>

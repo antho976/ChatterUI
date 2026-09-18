@@ -1,1 +1,0 @@
-ALTER TABLE `instructs` ADD `label_sections` integer DEFAULT true NOT NULL;

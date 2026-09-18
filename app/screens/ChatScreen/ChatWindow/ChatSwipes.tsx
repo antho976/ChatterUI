@@ -1,7 +1,9 @@
-import { AntDesign } from '@expo/vector-icons'
-import React from 'react'
+import AntDesign from '@react-native-vector-icons/ant-design/static'
+import { useLiveQuery } from 'drizzle-orm/expo-sqlite'
+import React, { useCallback } from 'react'
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native'
 
+import { ChatSwipe } from '@db/schema'
 import { continueResponse, generateResponse, regenerateResponse } from '@lib/engine/Inference'
 import { Chats } from '@lib/state/Chat'
 import { Theme } from '@lib/theme/ThemeManager'
@@ -9,86 +11,89 @@ import { Theme } from '@lib/theme/ThemeManager'
 type SwipesProps = {
     nowGenerating: boolean
     isGreeting: boolean
-    index: number
+    swipe: ChatSwipe
 }
 
-const ChatSwipes: React.FC<SwipesProps> = ({ nowGenerating, isGreeting, index }) => {
+const ChatSwipes: React.FC<SwipesProps> = ({ nowGenerating, isGreeting, swipe }) => {
     const styles = useStyles()
     const { color } = Theme.useTheme()
+    const { data: swipeIdListData } = useLiveQuery(Chats.db.live.swipeIdList(swipe.entry_id), [])
+    const swipeIdList = swipeIdListData.map((item) => item.id)
 
-    const { swipeChat, addSwipe } = Chats.useSwipes()
-    const { swipeText, swipeId, swipeIndex, swipesLength } = Chats.useSwipeData(index)
+    const currentIndex = swipeIdList.indexOf(swipe.id)
+
+    const getTextColor = useCallback(
+        (b: boolean) => {
+            return b ? color.text._600 : color.text._300
+        },
+        [color]
+    )
+
+    // return if no list, bad index, or if no alt greetings
+    if (!swipeIdList || currentIndex === -1 || (isGreeting && swipeIdList.length === 1)) return
 
     const handleSwipeLeft = () => {
-        swipeChat(index, -1)
+        if (currentIndex <= 0) return
+        const newSwipeId = swipeIdList[currentIndex - 1]
+        if (newSwipeId) Chats.db.mutate.activateSwipe(newSwipeId)
     }
 
     const handleSwipeRight = async (message: string) => {
-        const atLimit = await swipeChat(index, 1)
-        if (atLimit && !isGreeting) {
-            const id = await addSwipe(index, message)
-            if (!id) return
-            if (message) continueResponse(id)
-            else generateResponse(id)
+        if (currentIndex >= swipeIdList.length - 1) {
+            const newSwipe = await Chats.db.mutate.createSwipe(swipe.entry_id, message)
+            if (!newSwipe) return
+            if (message) continueResponse(newSwipe)
+            else generateResponse(newSwipe.id)
+        } else {
+            const newSwipeId = swipeIdList[currentIndex + 1]
+            if (newSwipeId) Chats.db.mutate.activateSwipe(newSwipeId)
         }
     }
 
-    const isLastAltGreeting = isGreeting && swipeIndex === swipesLength - 1
+    const isLastAltGreeting = isGreeting && currentIndex === swipeIdList.length - 1
+    const isFirstSwipe = currentIndex === 0
+
+    const disableSwipeLeft = nowGenerating || isFirstSwipe
+    const disableSwipeRight = nowGenerating || isLastAltGreeting
 
     return (
         <View style={styles.swipesItem}>
             <TouchableOpacity
                 style={styles.swipeButton}
                 onPress={handleSwipeLeft}
-                disabled={nowGenerating || swipeIndex === 0}>
-                <AntDesign
-                    name="left"
-                    size={20}
-                    color={swipeIndex === 0 || nowGenerating ? color.text._600 : color.text._300}
-                />
+                disabled={disableSwipeLeft}>
+                <AntDesign name="left" size={20} color={getTextColor(disableSwipeLeft)} />
             </TouchableOpacity>
 
-            {index !== 0 && (
+            {!isGreeting && (
                 <TouchableOpacity
-                    onPress={() => swipeId && regenerateResponse(swipeId)}
-                    onLongPress={() => swipeId && regenerateResponse(swipeId, false)}
+                    onPress={() => regenerateResponse(swipe)}
+                    onLongPress={() => regenerateResponse(swipe, false)}
                     disabled={nowGenerating}
                     style={styles.swipeButton}>
-                    <AntDesign
-                        name="retweet"
-                        size={20}
-                        color={nowGenerating ? color.text._600 : color.text._300}
-                    />
+                    <AntDesign name="retweet" size={20} color={getTextColor(nowGenerating)} />
                 </TouchableOpacity>
             )}
 
             <Text style={styles.swipeText}>
-                {swipeIndex + 1} / {swipesLength}
+                {currentIndex + 1} / {swipeIdList.length}
             </Text>
 
-            {index !== 0 && (
+            {!isGreeting && (
                 <TouchableOpacity
-                    onPress={() => swipeId && continueResponse(swipeId)}
+                    onPress={() => continueResponse(swipe)}
                     disabled={nowGenerating}
                     style={styles.swipeButton}>
-                    <AntDesign
-                        name="forward"
-                        size={20}
-                        color={nowGenerating ? color.text._600 : color.text._300}
-                    />
+                    <AntDesign name="forward" size={20} color={getTextColor(nowGenerating)} />
                 </TouchableOpacity>
             )}
 
             <TouchableOpacity
                 style={styles.swipeButton}
                 onPress={() => handleSwipeRight('')}
-                onLongPress={() => handleSwipeRight(swipeText ?? '')}
-                disabled={nowGenerating || isLastAltGreeting}>
-                <AntDesign
-                    name="right"
-                    size={20}
-                    color={isLastAltGreeting || nowGenerating ? color.text._400 : color.text._300}
-                />
+                onLongPress={() => handleSwipeRight(swipe.swipe ?? '')}
+                disabled={disableSwipeRight}>
+                <AntDesign name="right" size={20} color={getTextColor(disableSwipeRight)} />
             </TouchableOpacity>
         </View>
     )

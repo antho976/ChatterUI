@@ -1,6 +1,9 @@
+import { t } from 'i18next'
 import BackgroundService from 'react-native-background-actions'
 
+import { ChatSwipe } from '@db/schema'
 import { AppSettings } from '@lib/constants/GlobalValues'
+import { isCloseThinkTag, isOpenThinkTag } from '@lib/markdown/ThinkTags'
 import { useAppModeStore } from '@lib/state/AppMode'
 import { Chats, useInference } from '@lib/state/Chat'
 import { ChatPresets } from '@lib/state/ChatPresets'
@@ -14,39 +17,32 @@ import { Logger } from '../state/Logger'
 import { APIBuilderParams, buildAndSendRequest } from './API/APIBuilder'
 import { APIConfiguration, APIValues } from './API/APIBuilder.types'
 import { APIManager } from './API/APIManagerState'
+import { getDataSources } from './DataSources'
 import { localInference } from './LocalInference'
 import { Tokenizer } from './Tokenizer'
 
-export async function regenerateResponse(swipeId: number, regenCache: boolean = true) {
-    const charName = Characters.useCharacterStore.getState().card?.name
-    const messagesLength = Chats.useChatState.getState()?.data?.messages?.length ?? -1
-    const message = Chats.useChatState.getState()?.data?.messages?.[messagesLength - 1]
-
+export async function regenerateResponse(swipe: ChatSwipe, regenCache: boolean = true) {
     Logger.info('Regenerate Response' + (regenCache ? '' : ' , Resetting Message'))
 
-    if (message?.is_user) {
-        await Chats.useChatState.getState().addEntry(charName ?? '', true, '')
-    } else if (messagesLength && messagesLength !== 1) {
-        let replacement = ''
+    let replacement = ''
+    if (regenCache)
+        replacement = swipe.reset_length ? swipe.swipe.substring(0, swipe.reset_length) : ''
 
-        if (regenCache) replacement = message?.swipes[message.swipe_id].regen_cache ?? ''
-        else Chats.useChatState.getState().resetRegenCache()
+    Chats.useChatState.getState().setBuffer({ data: replacement })
+    await Chats.db.mutate.updateChatSwipe(swipe.id, replacement, {
+        updateFinished: true,
+        updateStarted: true,
+        resetTimings: true,
+    })
 
-        if (replacement) Chats.useChatState.getState().setBuffer({ data: replacement })
-        await Chats.useChatState.getState().updateEntry(messagesLength - 1, replacement, {
-            updateFinished: true,
-            updateStarted: true,
-            resetTimings: true,
-        })
-    }
-    await generateResponse(swipeId)
+    await generateResponse(swipe.id)
 }
 
-export async function continueResponse(swipeId: number) {
+export async function continueResponse(swipe: ChatSwipe) {
     Logger.info(`Continuing Response`)
-    Chats.useChatState.getState().setRegenCache()
-    Chats.useChatState.getState().insertLastToBuffer()
-    await generateResponse(swipeId)
+    await Chats.db.mutate.updateSwipeResetLength(swipe.id, swipe.swipe.length)
+    Chats.useChatState.getState().insertToBuffer(swipe.swipe)
+    await generateResponse(swipe.id)
 }
 
 const completionTaskOptions = {
@@ -68,10 +64,10 @@ const completionTaskOptions = {
 
 export async function generateResponse(swipeId: number) {
     if (useInference.getState().nowGenerating) {
-        Logger.infoToast('Generation already in progress')
+        Logger.infoToast(t('generation.errors.generationAlreadyInProgress'))
         return
     }
-    Chats.useChatState.getState().startGenerating(swipeId)
+    useInference.getState().startGenerating(swipeId)
     Logger.info(`Obtaining response.`)
     const appMode = useAppModeStore.getState().appMode
 
@@ -91,7 +87,7 @@ const useGenerateResponse = () => {
     const generateResponse = useCallback(
         async (swipeId: number) => {
             if (nowGenerating) {
-                Logger.infoToast('Generation already in progress')
+                Logger.infoToast(t('generation.errors.generationAlreadyInProgress'))
                 return
             }
             startGenerating(swipeId)
@@ -107,27 +103,57 @@ const useGenerateResponse = () => {
 
 async function chatInferenceStream() {
     const fields = await obtainFields()
-    const stop = () => Chats.useChatState.getState().stopGenerating()
+    const stop = () => useInference.getState().stopGenerating()
     if (!fields) {
         Logger.error('Chat Inference Failed')
         stop()
         return
     }
     fields.stopGenerating = stop
-    fields.onData = (text) => {
-        if (text === '<think>' || text === '</think>') {
-            const currentBuffer = Chats.useChatState.getState().buffer.data
-            if (currentBuffer.includes(text)) return
+    let reasoningMode: 'structured' | 'raw' | null = null
+    fields.onData = (output) => {
+        if (!reasoningMode && output.type === 'reasoning') {
+            Chats.useChatState.getState().insertToBuffer('<think>')
+            reasoningMode = 'raw'
         }
-        Chats.useChatState.getState().insertBuffer(text)
-        useTTSStore.getState().insertBuffer(text)
+
+        if (reasoningMode === 'raw' && output.type !== 'reasoning' && reasoningMode === 'raw') {
+            Chats.useChatState.getState().insertToBuffer('</think>\n')
+            reasoningMode = null
+        }
+
+        /**
+         * This is a naive implementation that expects output tags to be full tokens
+         * Most LLMs are trained so that think_start and think_end tokens are not composite
+         */
+        if (!reasoningMode && output.type === 'text' && isOpenThinkTag(output.type)) {
+            reasoningMode = 'structured'
+        }
+
+        if (
+            reasoningMode === 'structured' &&
+            output.type === 'text' &&
+            isCloseThinkTag(output.type)
+        ) {
+            reasoningMode = null
+        }
+
+        Chats.useChatState.getState().insertToBuffer(output.content)
+
+        /**
+         * considerations
+         * - add tool calls
+         */
+        if (!reasoningMode) useTTSStore.getState().insertBuffer(output.content)
     }
+
     fields.onEnd = async () => {
-        const chat = Chats.useChatState.getState().data
-        if (!mmkv.getBoolean(AppSettings.AutoGenerateTitle) || !chat || chat?.name !== 'New Chat')
-            return
+        const chatId = Chats.useChatState.getState().id
+        if (!chatId) return
+        const chatName = await Chats.db.query.chatName(chatId)
+        if (!mmkv.getBoolean(AppSettings.AutoGenerateTitle) || chatName !== 'New Chat') return
         Logger.info('Generating Title')
-        titleGeneratorStream(chat.id)
+        titleGeneratorStream(chatId)
     }
     const abort = await buildAndSendRequest(fields)
     useInference.getState().setAbort(() => {
@@ -144,24 +170,25 @@ const titleGeneratorStream = async (chatId: number) => {
     }
     fields.samplers.genamt = 50
     fields.samplers.reasoning_max_tokens = 0
-    fields.samplers.reasoning_effort = 'disabled'
+    fields.samplers.reasoning_effort = 'low'
+    fields.samplers.reasoning_exclude = true
     // rules, memory and presets are irrelevant for title generation
     fields.instruct.use_post_history = false
     fields.chatMemory = ''
     fields.chatPreset = null
-    let output = ''
-    fields.onData = (text) => {
-        output += text
+    let titleOutput = ''
+    fields.onData = (output) => {
+        if (output.type === 'text') titleOutput += output.content
     }
+
     fields.onEnd = () => {
-        Logger.debug('Autogenerated Name: ' + output)
-        if (output)
-            Chats.useChatState.getState().renameChat(
+        Logger.debug('Autogenerated Name: ' + titleOutput)
+        if (titleOutput)
+            Chats.db.mutate.renameChat(
                 chatId,
-                output
-                    .substring(0, 50)
+                titleOutput
                     .trim()
-                    .replace(/["'.]/g, '')
+                    .replace(/["'.*]/g, '')
                     .replace(/\b\w/g, (char) => char.toUpperCase())
             )
         else Logger.warn('Autogenerated name was blank.')
@@ -182,6 +209,9 @@ const titleGeneratorStream = async (chatId: number) => {
                 gen_started: new Date(),
                 gen_finished: new Date(),
                 timings: null,
+                active: true,
+                token_length: null,
+                reset_length: null,
             },
         ],
         attachments: [],
@@ -203,30 +233,37 @@ async function obtainFields(): Promise<APIBuilderParams | void> {
     try {
         const userState = Characters.useUserStore.getState()
         const characterState = Characters.useCharacterStore.getState()
-        const chatState = Chats.useChatState.getState()
         const apiState = APIManager.useConnectionsStore.getState()
         const instructState = Instructs.useInstruct.getState()
 
         const userCard = userState.card
         if (!userCard) {
-            Logger.errorToast('No loaded user')
+            Logger.errorToast(t('generation.errors.noUser'))
             return
         }
 
         const characterCard = characterState.card
         if (!characterCard) {
-            Logger.errorToast('No loaded character')
-            return
-        }
-        const messages = chatState.data?.messages
-        if (!messages) {
-            Logger.errorToast('No chat character')
+            Logger.errorToast(t('generation.errors.noCharacter'))
             return
         }
 
+        const chatId = Chats.useChatState.getState().id
+        if (!chatId) {
+            Logger.errorToast(t('generation.errors.noActiveChat'))
+            return
+        }
+
+        const messages = (await Chats.db.query.chat(chatId))?.messages
+        if (!messages) {
+            Logger.errorToast(t('generation.errors.noChatFound'))
+            return
+        }
+        const chatData = await Chats.db.query.chatShallow(chatId)
+
         const apiValues = apiState.values.find((item, index) => index === apiState.activeIndex)
         if (!apiValues) {
-            Logger.warnToast(`No Active API`)
+            Logger.warnToast(t('generation.errors.noActiveAPI'))
             return
         }
 
@@ -234,7 +271,9 @@ async function obtainFields(): Promise<APIBuilderParams | void> {
 
         const apiConfig = configs[0]
         if (!apiConfig) {
-            Logger.errorToast(`Configuration "${apiValues?.configName}" not found`)
+            Logger.errorToast(
+                t('generation.errors.configurationNotFound', { name: apiValues?.configName })
+            )
             return
         }
         const samplers = SamplersManager.getCurrentSampler()
@@ -251,6 +290,10 @@ async function obtainFields(): Promise<APIBuilderParams | void> {
             stopSequence = stopSequence.slice(0, stopSequenceLimit)
             Logger.warn('Stop sequence length exceeds defined stopSequenceLimit')
         }
+        const tokenizer = Tokenizer.getTokenizer()
+
+        const dataSources = await getDataSources()
+
         return {
             apiConfig: Object.assign({}, apiConfig),
             apiValues: Object.assign({}, apiValues),
@@ -261,21 +304,29 @@ async function obtainFields(): Promise<APIBuilderParams | void> {
             character: Object.assign({}, characterCard),
             user: Object.assign({}, userCard),
             messages: [...messages],
-            chatMemory: chatState.data?.memory ?? '',
-            chatPreset: chatState.data
-                ? await ChatPresets.db.query.activeForChat(
-                      chatState.data.id,
-                      chatState.data.active_preset_id
-                  )
+            chatMemory: chatData?.memory ?? '',
+            chatPreset: chatData
+                ? await ChatPresets.db.query.activeForChat(chatId, chatData.active_preset_id)
                 : null,
             stopSequence: stopSequence,
             stopGenerating: () => {},
             chatTokenizer: async (entry, index) => {
                 // IMPORTANT - we use -1 for dummy entries
                 if (entry.id === -1) return 0
-                return await chatState.getTokenCount(index)
+                const [activeSwipe] = entry.swipes.filter((item) => item.active)
+                if (!activeSwipe) return 0
+                const tokenCount = activeSwipe.token_count ?? 0
+                if (tokenCount === 0 && activeSwipe.swipe.length > 0) {
+                    // assume that token length hasnt been calculated
+                    const tokenCount = await tokenizer(
+                        activeSwipe.swipe,
+                        entry.attachments.map((item) => item.uri)
+                    )
+                    await Chats.db.mutate.updateSwipeTokenLength(activeSwipe.id, tokenCount)
+                }
+                return activeSwipe.token_count ?? 0
             },
-            tokenizer: Tokenizer.getTokenizer(),
+            tokenizer: tokenizer,
             maxLength: length,
             cache: {
                 // each cache holds its own card's token counts, keyed by the other party's name
@@ -283,9 +334,10 @@ async function obtainFields(): Promise<APIBuilderParams | void> {
                 characterCache: await characterState.getCache(userCard.name),
                 instructCache: await instructState.getCache(characterCard.name, userCard.name),
             },
+            dataSources: dataSources,
         }
     } catch (e) {
         Logger.stackTrace(e)
-        Logger.errorToast('Failed to orchestrate request build: ' + e)
+        Logger.errorToast(t('generation.errors.failedToOrchestrateRequestBuild'), e)
     }
 }

@@ -72,6 +72,12 @@ export const defaultTemplates: APIConfiguration[] = [
             editableCompletionPath: false,
             editableModelPath: false,
             selectableModel: false,
+            display: {
+                name: 'OpenAI',
+                priority: 10100,
+                icon: 'openai',
+                link: 'https://developers.openai.com/api/reference/overview',
+            },
         },
     },
     // KoboldCPP
@@ -152,6 +158,13 @@ export const defaultTemplates: APIConfiguration[] = [
             editableCompletionPath: true,
             editableModelPath: false,
             selectableModel: true,
+            display: {
+                name: 'Kobold CPP',
+                link: 'https://github.com/lostruins/koboldcpp',
+                priority: 1100,
+                icon: 'gear',
+                description: 'For use with the koboldcpp base API',
+            },
         },
     },
     // Mancer
@@ -220,6 +233,12 @@ export const defaultTemplates: APIConfiguration[] = [
             editableCompletionPath: false,
             editableModelPath: false,
             selectableModel: true,
+            display: {
+                name: 'Mancer',
+                link: 'https://mancer.tech/',
+                priority: 10010,
+                icon: 'lightning',
+            },
         },
     },
     // Ollama
@@ -287,6 +306,12 @@ export const defaultTemplates: APIConfiguration[] = [
             editableCompletionPath: true,
             editableModelPath: true,
             selectableModel: true,
+            display: {
+                name: 'Ollama',
+                link: 'https://ollama.com/',
+                priority: 1900,
+                icon: 'ollama',
+            },
         },
     },
     // Claude
@@ -306,7 +331,7 @@ export const defaultTemplates: APIConfiguration[] = [
         features: {
             useKey: true,
             useModel: true,
-            usePrefill: true,
+            usePrefill: false,
             useFirstMessage: false,
             multipleModels: false,
         },
@@ -354,6 +379,12 @@ export const defaultTemplates: APIConfiguration[] = [
             editableCompletionPath: true,
             editableModelPath: false,
             selectableModel: true,
+            display: {
+                name: 'Claude',
+                link: 'https://platform.claude.com/docs/en/home',
+                priority: 10090,
+                icon: 'claude',
+            },
         },
     },
     // Cohere
@@ -423,6 +454,12 @@ export const defaultTemplates: APIConfiguration[] = [
             editableCompletionPath: false,
             editableModelPath: false,
             selectableModel: true,
+            display: {
+                name: 'Cohere',
+                link: 'https://docs.cohere.com/',
+                priority: 10050,
+                icon: 'cohere',
+            },
         },
     },
     // Open Router
@@ -498,6 +535,12 @@ export const defaultTemplates: APIConfiguration[] = [
             editableCompletionPath: false,
             editableModelPath: false,
             selectableModel: true,
+            display: {
+                name: 'Open Router',
+                link: 'https://openrouter.ai/',
+                priority: 10070,
+                icon: 'openrouter',
+            },
         },
     },
     // Horde
@@ -564,6 +607,11 @@ export const defaultTemplates: APIConfiguration[] = [
             editableCompletionPath: false,
             editableModelPath: false,
             selectableModel: true,
+            display: {
+                name: 'AI Horde',
+                link: 'https://aihorde.net/',
+                priority: 1070,
+            },
         },
     },
 
@@ -597,7 +645,6 @@ export const defaultTemplates: APIConfiguration[] = [
                 { externalName: 'stream', samplerID: SamplerID.STREAMING },
                 { externalName: 'temperature', samplerID: SamplerID.TEMPERATURE },
                 { externalName: 'top_p', samplerID: SamplerID.TOP_P },
-                // { externalName: 'presence_penalty', samplerID: SamplerID.PRESENCE_PENALTY }, //not supported by gemini models
             ],
             completionType: {
                 type: 'chatCompletions',
@@ -633,6 +680,12 @@ export const defaultTemplates: APIConfiguration[] = [
             editableCompletionPath: true,
             editableModelPath: true,
             selectableModel: true,
+            display: {
+                name: 'Google AI Studio',
+                link: 'https://aistudio.google.com',
+                priority: 10070,
+                icon: 'googleai',
+            },
         },
     },
     // Chat Completions
@@ -704,6 +757,11 @@ export const defaultTemplates: APIConfiguration[] = [
             editableCompletionPath: true,
             editableModelPath: true,
             selectableModel: true,
+            display: {
+                priority: 300,
+                description:
+                    'Generic Chat Completions format for various apps (llama.cpp server, LM Studio, vLLM, etc)',
+            },
         },
     },
 
@@ -774,6 +832,10 @@ export const defaultTemplates: APIConfiguration[] = [
             editableCompletionPath: true,
             editableModelPath: true,
             selectableModel: true,
+            display: {
+                priority: 200,
+                description: 'Generic Chat Completions with vision support',
+            },
         },
     },
 
@@ -858,6 +920,10 @@ export const defaultTemplates: APIConfiguration[] = [
             editableCompletionPath: true,
             editableModelPath: false,
             selectableModel: false,
+            display: {
+                priority: 100,
+                description: 'Only for legacy APIs',
+            },
         },
     },
 ]

@@ -1,114 +1,109 @@
-import React, { useEffect, useState } from 'react'
+import { useLiveQuery } from 'drizzle-orm/expo-sqlite'
+import { useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { StyleSheet, Text, View } from 'react-native'
 import { create } from 'zustand'
-import { useShallow } from 'zustand/react/shallow'
 
 import ThemedButton from '@components/buttons/ThemedButton'
 import ThemedTextInput from '@components/input/ThemedTextInput'
-import BottomSheet from '@components/views/BottomSheet'
+import BottomSheet, { BottomSheetRef, createBottomSheetRef } from '@components/views/BottomSheet'
+import { useLiveQueryJoined } from '@lib/hooks/LiveQueryJoined'
 import { Chats } from '@lib/state/Chat'
 import { Theme } from '@lib/theme/ThemeManager'
 
 type ChatEditorStateProps = {
-    index: number
-    editMode: boolean
+    entryId: number
+    ref: BottomSheetRef
     hide: () => void
     show: (index: number) => void
 }
 
 //TODO: This is somewhat unsafe, as it always expects index to be valid at 0
-export const useChatEditorStore = create<ChatEditorStateProps>()((set) => ({
-    index: 0,
+export const useChatEditorStore = create<ChatEditorStateProps>()((set, get) => ({
+    entryId: 0,
+    ref: createBottomSheetRef(),
     editMode: false,
     hide: () => {
-        set({ editMode: false })
+        get().ref.current?.close()
     },
-    show: (index) => {
-        set({ editMode: true, index: index })
+    show: (entryId) => {
+        set({ entryId })
+        get().ref.current?.open()
     },
 }))
 
 const ChatEditor = () => {
-    const { index, editMode, hide } = useChatEditorStore(
-        useShallow((state) => ({
-            index: state.index,
-            editMode: state.editMode,
-            hide: state.hide,
-        }))
-    )
+    const { t } = useTranslation()
+    const { entryId, hide, ref } = useChatEditorStore()
     const styles = useStyles()
-
-    const { updateEntry, deleteEntry } = Chats.useEntry()
-    const { swipeText, swipe } = Chats.useSwipeData(index)
-    const entry = Chats.useEntryData(index)
     const [placeholderText, setPlaceholderText] = useState('')
-    useEffect(() => {
-        editMode && swipeText !== undefined && setPlaceholderText(swipeText)
-    }, [swipeText, editMode])
-
-    // TODO: This should safely return if invalid values were given
-    if (swipeText === undefined) return
+    const { data: entry } = useLiveQuery(Chats.db.live.entry(entryId), [entryId])
+    const { data: swipe } = useLiveQueryJoined(
+        Chats.db.live.activeSwipeByEntry(entryId),
+        [entryId],
+        {
+            onUpdated: (result) => {
+                const swipe = result?.swipe
+                setPlaceholderText(swipe ?? '')
+            },
+        }
+    )
 
     const handleEditMessage = () => {
         hide()
-        updateEntry(index, placeholderText)
+        if (swipe && placeholderText !== swipe.swipe)
+            Chats.db.mutate.updateChatSwipe(swipe.id, placeholderText)
     }
 
     const handleDeleteMessage = () => {
         hide()
-        deleteEntry(index)
-    }
-
-    const handleClose = () => {
-        hide()
+        Chats.db.mutate.deleteChatEntry(entryId)
     }
 
     return (
-        <BottomSheet
-            sheetStyle={{ rowGap: 12 }}
-            visible={editMode}
-            setVisible={(visible) => {
-                if (!visible) handleClose()
-            }}
-            onClose={handleClose}>
-            <View style={styles.topText}>
-                <Text numberOfLines={1} style={styles.nameText} ellipsizeMode="tail">
-                    {entry?.name}
-                </Text>
-                <Text style={styles.timeText}>{swipe?.send_date.toLocaleTimeString()}</Text>
-            </View>
+        <BottomSheet sheetStyle={{ rowGap: 12, maxHeight: '95%' }} ref={ref}>
+            {swipe !== undefined && (
+                <>
+                    <View style={styles.topText}>
+                        <Text numberOfLines={1} style={styles.nameText} ellipsizeMode="tail">
+                            {entry?.name}
+                        </Text>
+                        <Text style={styles.timeText}>{swipe?.send_date.toLocaleTimeString()}</Text>
+                    </View>
 
-            <ThemedTextInput
-                containerStyle={{ flex: 0, flexShrink: 1 }}
-                value={placeholderText}
-                onChangeText={setPlaceholderText}
-                multiline
-            />
+                    <ThemedTextInput
+                        containerStyle={{ flex: 0, flexShrink: 1 }}
+                        value={placeholderText}
+                        onChangeText={setPlaceholderText}
+                        multiline
+                    />
 
-            <View
-                style={{
-                    flexDirection: 'row',
-                    justifyContent: 'space-between',
-                }}>
-                <ThemedButton
-                    label="Delete"
-                    iconName="delete"
-                    onPress={handleDeleteMessage}
-                    variant="critical"
-                />
-                <ThemedButton
-                    iconName="reload"
-                    variant="tertiary"
-                    label="Reset"
-                    onPress={() => swipeText && setPlaceholderText(swipeText)}
-                />
-                <ThemedButton
-                    label="Confirm"
-                    iconName="check"
-                    onPress={handleEditMessage}
-                    variant="secondary"
-                />
-            </View>
+                    <View
+                        style={{
+                            flexDirection: 'row',
+                            justifyContent: 'space-between',
+                        }}>
+                        <ThemedButton
+                            label={t('chat.editor.actions.delete')}
+                            iconName="delete"
+                            onPress={handleDeleteMessage}
+                            variant="critical"
+                        />
+                        <ThemedButton
+                            iconName="reload"
+                            variant="tertiary"
+                            label={t('chat.editor.actions.reset')}
+                            onPress={() => setPlaceholderText(swipe?.swipe ?? '')}
+                        />
+                        <ThemedButton
+                            label={t('chat.editor.actions.confirm')}
+                            iconName="check"
+                            onPress={handleEditMessage}
+                            variant="secondary"
+                        />
+                    </View>
+                </>
+            )}
         </BottomSheet>
     )
 }

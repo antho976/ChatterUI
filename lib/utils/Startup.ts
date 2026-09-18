@@ -7,6 +7,7 @@ import { router } from 'expo-router'
 import { setBackgroundColorAsync as setUIBackgroundColor } from 'expo-system-ui'
 import { z } from 'zod'
 
+import { migrateData } from '@db/dataMigrations'
 import { Model } from '@lib/engine/Local/Model'
 import { Tokenizer } from '@lib/engine/Tokenizer'
 import { setupNotifications } from '@lib/notifications/Notifications'
@@ -17,7 +18,6 @@ import { SamplersManager } from '@lib/state/SamplerState'
 import { useTTSStore } from '@lib/state/TTS'
 
 import { AppDirectory, deleteFile, listFiles, makeDirectory, readStringAsync } from './File'
-// import { patchAndroidText } from './PatchText'
 import { lockScreenOrientation } from './Screen'
 import { AppSettings, AppSettingsDefault, Global } from '../constants/GlobalValues'
 import { Llama } from '../engine/Local/LlamaLocal'
@@ -32,7 +32,7 @@ const loadNewestChat = async () => {
     const newestChat = await Chats.db.query.chatNewest()
     if (!newestChat) return
     await Characters.useCharacterStore.getState().setCard(newestChat.character_id)
-    await Chats.useChatState.getState().load(newestChat.id)
+    await Chats.useChatState.getState().setId(newestChat.id)
 }
 
 export const loadChatOnInit = async () => {
@@ -298,7 +298,7 @@ export const startupApp = () => {
     migrateAppMode_0_8_5_to_0_8_6()
     migrateTextIntent_0_8_8_to_0_8_9()
     lockScreenOrientation()
-
+    migrateData()
     const backgroundColor = Theme.useColorState.getState().color.neutral._100
     setUIBackgroundColor(backgroundColor)
 

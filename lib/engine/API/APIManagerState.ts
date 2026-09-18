@@ -3,6 +3,7 @@ import { persist } from 'zustand/middleware'
 import { useShallow } from 'zustand/react/shallow'
 
 import { Storage } from '@lib/enums/Storage'
+import { CharacterLink } from '@lib/state/CharacterLinks'
 import { Logger } from '@lib/state/Logger'
 import { createMMKVStorage } from '@lib/storage/MMKV'
 
@@ -14,13 +15,20 @@ export interface APIManagerValue extends APIValues {
     friendlyName: string
 }
 
+type APIManagerPreferences = {
+    showCustomFields: boolean
+}
+
 type APIStateProps = {
     activeIndex: number
     values: APIManagerValue[]
+    preferences: APIManagerPreferences
+    updatePreferences: (preferences: Partial<APIManagerPreferences>) => void
     customTemplates: APIConfiguration[]
     addValue: (template: APIManagerValue) => void
     addTemplate: (values: APIConfiguration) => void
     removeValue: (index: number) => void
+    setActiveIndex: (index: number) => void
     removeTemplate: (index: number) => void
     editValue: (value: APIManagerValue, index: number) => void
     getTemplates: () => APIConfiguration[]
@@ -31,8 +39,11 @@ export namespace APIManager {
         persist(
             (set, get) => ({
                 activeIndex: -1,
+                preferences: { showCustomFields: false },
                 values: [],
                 customTemplates: [],
+                updatePreferences: (preferences) =>
+                    set({ preferences: { ...get().preferences, ...preferences } }),
                 addValue: (value) => {
                     const values = [...get().values]
                     values.forEach((item) => (item.active = false))
@@ -42,7 +53,12 @@ export namespace APIManager {
                         activeIndex: values.length - 1,
                     })
                 },
-
+                setActiveIndex: (activeIndex) => {
+                    const values = get().values.map((item) => ({ ...item, active: false }))
+                    if (activeIndex > values.length) return
+                    values[activeIndex].active = true
+                    set({ activeIndex, values })
+                },
                 addTemplate: (template) => {
                     const templates = get().getTemplates()
                     if (templates.some((item) => item.name === template.name)) {
@@ -65,6 +81,7 @@ export namespace APIManager {
                         activeIndex = -1
                     }
                     values.splice(index, 1)
+                    CharacterLink.db.mutate.deleteByValue('connection_index', index)
                     set({ values: values, activeIndex: activeIndex })
                 },
                 removeTemplate: (index) => {
@@ -95,7 +112,13 @@ export namespace APIManager {
             {
                 name: Storage.API,
                 storage: createMMKVStorage(),
-                version: 1,
+                version: 2,
+                migrate: (persistedState: any, version) => {
+                    if (version === 1) {
+                        persistedState.preferences = { showCustomFields: false }
+                    }
+                    return persistedState
+                },
             }
         )
     )

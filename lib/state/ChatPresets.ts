@@ -1,7 +1,7 @@
 import { and, desc, eq, inArray, notInArray, or } from 'drizzle-orm'
 
-import { db as database } from '@db'
-import { chatPresetLinks, chatPresets, ChatPresetType, chats } from 'db/schema'
+import { db as database } from '@db/db'
+import { chatPresetLinks, chatPresets, ChatPresetType, chats } from '@db/schema'
 
 import { Logger } from './Logger'
 

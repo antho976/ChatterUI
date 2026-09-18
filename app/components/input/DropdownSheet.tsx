@@ -1,8 +1,9 @@
-import { Entypo } from '@expo/vector-icons'
+import Octicons, { OcticonsIconName } from '@react-native-vector-icons/octicons/static'
 import { useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { FlatList, Pressable, Text, TextInput, View, ViewStyle } from 'react-native'
 
-import BottomSheet from '@components/views/BottomSheet'
+import BottomSheet, { useBottomSheetRef } from '@components/views/BottomSheet'
 import { Theme } from '@lib/theme/ThemeManager'
 
 import { useDropdownStyles } from './MultiDropdownSheet'
@@ -18,6 +19,9 @@ type DropdownSheetProps<T> = {
     placeholder?: string
     modalTitle?: string
     closeOnSelect?: boolean
+    icon?: OcticonsIconName | null
+    iconPosition?: 'right' | 'left'
+    iconSize?: number
 }
 
 const DropdownSheet = <T,>({
@@ -26,26 +30,35 @@ const DropdownSheet = <T,>({
     style,
     selected = undefined,
     data = [],
-    placeholder = 'Select Item...',
-    modalTitle = 'Select Item',
+    placeholder: propPlaceholder, // Renamed to avoid conflict
+    modalTitle: propModalTitle, // Renamed to avoid conflict
     labelExtractor = (data) => {
         return data as string
     },
     search = false,
     closeOnSelect = true,
+    icon = 'chevron-down',
+    iconPosition = 'right',
+    iconSize = 18,
 }: DropdownSheetProps<T>) => {
     const styles = useDropdownStyles()
-    const [showList, setShowList] = useState(false)
+    const sheetRef = useBottomSheetRef()
     const [searchFilter, setSearchFilter] = useState('')
     const theme = Theme.useTheme()
+    const { t } = useTranslation()
+
+    // Translate default placeholder and modal title if not provided
+    const placeholder = propPlaceholder ?? t('dropdown.selectItem')
+    const modalTitle = propModalTitle ?? t('dropdown.selectItem')
+
     const items = data.filter((item) =>
         labelExtractor(item).toLowerCase().includes(searchFilter.toLowerCase())
     )
+
     return (
         <View style={containerStyle}>
             <BottomSheet
-                visible={showList}
-                setVisible={setShowList}
+                ref={sheetRef}
                 onClose={() => {
                     setSearchFilter('')
                 }}>
@@ -65,18 +78,18 @@ const DropdownSheet = <T,>({
                                 }
                                 onPress={() => {
                                     onChangeValue(item)
-                                    setShowList(!closeOnSelect)
+                                    if (closeOnSelect) sheetRef.current?.close()
                                 }}>
                                 <Text style={styles.listItemText}>{labelExtractor(item)}</Text>
                             </Pressable>
                         )}
                     />
                 ) : (
-                    <Text style={styles.emptyText}>No Items</Text>
+                    <Text style={styles.emptyText}>{t('common.emptyStates.noItems')}</Text>
                 )}
                 {search && (
                     <TextInput
-                        placeholder="Filter..."
+                        placeholder={t('dropdown.filter')}
                         placeholderTextColor={theme.color.text._300}
                         style={styles.searchBar}
                         value={searchFilter}
@@ -84,10 +97,19 @@ const DropdownSheet = <T,>({
                     />
                 )}
             </BottomSheet>
-            <Pressable style={[style, styles.button]} onPress={() => setShowList(true)}>
+            <Pressable
+                style={[
+                    styles.button,
+                    style,
+                    {
+                        flexDirection: iconPosition === 'right' ? 'row' : 'row-reverse',
+                        columnGap: 8,
+                    },
+                ]}
+                onPress={() => sheetRef.current?.open()}>
                 {selected && <Text style={styles.buttonText}>{labelExtractor(selected)}</Text>}
                 {!selected && <Text style={styles.placeholderText}>{placeholder}</Text>}
-                <Entypo name="chevron-down" color={theme.color.primary._800} size={18} />
+                {icon && <Octicons name={icon} color={theme.color.primary._800} size={iconSize} />}
             </Pressable>
         </View>
     )

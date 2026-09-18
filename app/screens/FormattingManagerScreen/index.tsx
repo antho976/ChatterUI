@@ -1,5 +1,6 @@
 import { useLiveQuery } from 'drizzle-orm/expo-sqlite'
-import { useState } from 'react'
+import { useMemo } from 'react'
+import { useTranslation } from 'react-i18next'
 import { Text, View } from 'react-native'
 import { KeyboardAwareScrollView } from 'react-native-keyboard-controller'
 import Markdown from 'react-native-markdown-display'
@@ -15,29 +16,88 @@ import ThemedSlider from '@components/input/ThemedSlider'
 import ThemedSwitch from '@components/input/ThemedSwitch'
 import ThemedTextInput from '@components/input/ThemedTextInput'
 import SectionTitle from '@components/text/SectionTitle'
+import Accordion from '@components/views/Accordion'
 import Alert from '@components/views/Alert'
+import { useBottomSheetRef } from '@components/views/BottomSheet'
 import ContextMenu from '@components/views/ContextMenu'
+import Grid from '@components/views/Grid'
 import HeaderButton from '@components/views/HeaderButton'
 import HeaderTitle from '@components/views/HeaderTitle'
 import InputSheet from '@components/views/InputSheet'
 import { AppSettings } from '@lib/constants/GlobalValues'
 import useAutosave from '@lib/hooks/AutoSave'
+import { useCompletionMode } from '@lib/hooks/CompletionMode'
 import { useTextFilterStore } from '@lib/hooks/TextFilter'
 import { MarkdownStyle } from '@lib/markdown/Markdown'
-import { Instructs } from '@lib/state/Instructs'
+import { useAppMode } from '@lib/state/AppMode'
+import { Instructs, InstructType } from '@lib/state/Instructs'
 import { Logger } from '@lib/state/Logger'
 import { Theme } from '@lib/theme/ThemeManager'
 import { saveStringToDownload } from '@lib/utils/File'
+import { snakeToCamel } from '@lib/utils/TextFormat'
+import { KeysOfType } from '@lib/utils/Types'
 
-const autoformatterData = [
-    { label: 'Disabled', example: '*<No Formatting>*' },
-    { label: 'Plain Action, Quote Speech', example: 'Some action, "Some speech"' },
-    { label: 'Asterisk Action, Plain Speech', example: '*Some action* Some speech' },
-    { label: 'Asterisk Action, Quote Speech', example: '*Some action* "Some speech"' },
+const affixKeys: KeysOfType<InstructType, string>[] = [
+    'system_prefix',
+    'system_suffix',
+    'input_prefix',
+    'input_suffix',
+    'output_prefix',
+    'output_suffix',
+    'last_output_prefix',
+]
+
+const macroCardKeys: KeysOfType<InstructType, boolean>[] = [
+    'wrap',
+    'examples',
+    'scenario',
+    'names',
+    'timestamp',
+    'personality',
+    'hide_think_tags',
+]
+
+const attachmentKeys: KeysOfType<InstructType, boolean>[] = [
+    'send_images',
+    'send_audio',
+    'send_documents',
+    'last_image_only',
+]
+
+const promptKeys: KeysOfType<InstructType, boolean>[] = [
+    'use_card_system_prompt',
+    'label_sections',
+    'use_post_history',
+    'note_in_user_message',
+    'strict_alternation',
 ]
 
 const FormattingManager = () => {
+    const { t } = useTranslation()
     const markdownStyle = MarkdownStyle.useMarkdownStyle()
+    const autoformatterData = useMemo(
+        () => [
+            {
+                label: t('formatting.autoformatter.disabled'),
+                example: t('formatting.autoformatter.disabledExample'),
+            },
+            {
+                label: t('formatting.autoformatter.plainActionQuoteSpeech'),
+                example: t('formatting.autoformatter.plainActionQuoteSpeechExample'),
+            },
+            {
+                label: t('formatting.autoformatter.asteriskActionPlainSpeech'),
+                example: t('formatting.autoformatter.asteriskActionPlainSpeechExample'),
+            },
+            {
+                label: t('formatting.autoformatter.asteriskActionQuoteSpeech'),
+                example: t('formatting.autoformatter.asteriskActionQuoteSpeechExample'),
+            },
+        ],
+        [t]
+    )
+    const completionType = useCompletionMode()
+    const { appMode } = useAppMode()
     const [useTemplate, setUseTemplate] = useMMKVBoolean(AppSettings.UseModelTemplate)
     const { currentInstruct, loadInstruct, setCurrentInstruct } = Instructs.useInstruct(
         useShallow((state) => ({
@@ -51,7 +111,7 @@ const FormattingManager = () => {
     const { data } = useLiveQuery(Instructs.db.query.instructListQuery())
     const instructList = data
     const selectedItem = data.filter((item) => item.id === instructID)?.[0]
-    const [showNewInstruct, setShowNewInstruct] = useState<boolean>(false)
+    const newInstructInputRef = useBottomSheetRef()
     const { textFilter, setTextFilter, sendFilteredText, setSendFilteredText } = useTextFilterStore(
         useShallow((state) => ({
             sendFilteredText: state.sendFilteredText,
@@ -68,12 +128,12 @@ const FormattingManager = () => {
 
     const handleRegenerateDefaults = () => {
         Alert.alert({
-            title: `Regenerate Default Instructs`,
-            description: `Are you sure you want to regenerate default Instructs'?`,
+            title: t('formatting.alert.regenerateDefaults.title'),
+            description: t('formatting.alert.regenerateDefaults.description'),
             buttons: [
-                { label: 'Cancel' },
+                { label: t('formatting.alert.regenerateDefaults.cancel') },
                 {
-                    label: 'Regenerate Default Presets',
+                    label: t('formatting.alert.regenerateDefaults.confirm'),
                     onPress: async () => {
                         await Instructs.generateInitialDefaults()
                     },
@@ -84,29 +144,32 @@ const FormattingManager = () => {
 
     const handleExportPreset = async () => {
         if (!instructID) return
-        const name = (currentInstruct?.name ?? 'Default') + '.json'
+        const name =
+            (currentInstruct?.name ?? t('formatting.defaultName')) + t('formatting.jsonExtension')
         await saveStringToDownload(JSON.stringify(currentInstruct), name, 'utf8')
-        Logger.infoToast(`Saved "${name}" to Downloads`)
+        Logger.infoToast(t('formatting.toast.savedToDownloads', { name }))
     }
 
     const handleDeletePreset = () => {
         if (instructList.length === 1) {
-            Logger.warnToast(`Cannot delete last Instruct preset.`)
+            Logger.warnToast(t('formatting.toast.cannotDeleteLastPreset'))
             return
         }
 
         Alert.alert({
-            title: `Delete Config`,
-            description: `Are you sure you want to delete '${currentInstruct?.name}'?`,
+            title: t('formatting.alert.deleteConfig.title'),
+            description: t('formatting.alert.deleteConfig.description', {
+                name: currentInstruct?.name ?? t('formatting.defaultName'),
+            }),
             buttons: [
-                { label: 'Cancel' },
+                { label: t('formatting.alert.deleteConfig.cancel') },
                 {
-                    label: 'Delete Instruct',
+                    label: t('formatting.alert.deleteConfig.confirm'),
                     onPress: async () => {
                         if (!instructID) return
                         const leftover = data.filter((item) => item.id !== instructID)
                         if (leftover.length === 0) {
-                            Logger.warnToast('Cannot delete last instruct')
+                            Logger.warnToast(t('formatting.toast.cannotDeleteLastPreset'))
                             return
                         }
                         Instructs.db.mutate.deleteInstruct(instructID)
@@ -125,16 +188,15 @@ const FormattingManager = () => {
             placement="bottom"
             buttons={[
                 {
-                    label: 'Create Config',
+                    label: t('formatting.createConfig'),
                     icon: 'file-add',
                     onPress: (close) => {
-                        setShowNewInstruct(true)
-
+                        newInstructInputRef.current?.open()
                         close()
                     },
                 },
                 {
-                    label: 'Export Config',
+                    label: t('formatting.exportConfig'),
                     icon: 'download',
                     onPress: (close) => {
                         handleExportPreset()
@@ -142,7 +204,7 @@ const FormattingManager = () => {
                     },
                 },
                 {
-                    label: 'Delete Config',
+                    label: t('formatting.deleteConfig'),
                     icon: 'delete',
                     onPress: (close) => {
                         handleDeletePreset()
@@ -151,7 +213,7 @@ const FormattingManager = () => {
                     variant: 'warning',
                 },
                 {
-                    label: 'Regenerate Default',
+                    label: t('formatting.regenerateDefaults'),
                     icon: 'reload',
                     onPress: (close) => {
                         handleRegenerateDefaults()
@@ -164,47 +226,87 @@ const FormattingManager = () => {
 
     useAutosave({ data: currentInstruct, onSave: () => handleSaveInstruct(false), interval: 1000 })
 
-    if (currentInstruct)
-        return (
-            <SafeAreaView
-                edges={['bottom']}
-                key={currentInstruct.id}
-                style={{
-                    marginVertical: spacing.xl,
-                    flex: 1,
-                }}>
-                <HeaderTitle title="Formatting" />
-                <HeaderButton headerRight={headerRight} />
-                <View>
-                    <InputSheet
-                        title="New Instruct Preset"
-                        visible={showNewInstruct}
-                        setVisible={setShowNewInstruct}
-                        verifyText={(text) =>
-                            instructList.some((item) => item.name === text)
-                                ? 'Config already exists'
-                                : ''
-                        }
-                        onConfirm={(text) => {
-                            if (instructList.some((item) => item.name === text)) {
-                                Logger.warnToast(`Config name already exists.`)
-                                return
-                            }
-                            if (!currentInstruct) return
+    if (!currentInstruct) return
 
-                            Instructs.db.mutate
-                                .createInstruct({ ...currentInstruct, name: text })
-                                .then(async (newid) => {
-                                    Logger.infoToast(`Config created.`)
-                                    await loadInstruct(newid)
-                                })
+    const handleUpdateInstructText = (key: KeysOfType<InstructType, string>, value: string) => {
+        setCurrentInstruct({ ...currentInstruct, [key]: value })
+    }
+
+    const handleUpdateInstructBoolean = (
+        key: KeysOfType<InstructType, boolean>,
+        value: boolean
+    ) => {
+        setCurrentInstruct({ ...currentInstruct, [key]: value })
+    }
+
+    const AffixGrid = () => (
+        <Grid
+            items={affixKeys}
+            numColumns={2}
+            rowGap={8}
+            columnGap={8}
+            renderItem={(item) => {
+                return (
+                    <ThemedTextInput
+                        label={t('formatting.sections.' + snakeToCamel(item))}
+                        value={currentInstruct[item]}
+                        onChangeText={(text) => {
+                            handleUpdateInstructText(item, text)
                         }}
+                        numberOfLines={5}
+                        multiline
                     />
-                </View>
+                )
+            }}
+        />
+    )
 
+    return (
+        <SafeAreaView
+            edges={['bottom']}
+            key={currentInstruct.id}
+            style={{
+                marginVertical: spacing.xl,
+                flex: 1,
+            }}>
+            <HeaderTitle title={t('formatting.title')} />
+            <HeaderButton headerRight={headerRight} />
+            <InputSheet
+                title={t('formatting.newPreset')}
+                ref={newInstructInputRef}
+                verifyText={(text) =>
+                    instructList.some((item) => item.name === text)
+                        ? t('formatting.configExists')
+                        : ''
+                }
+                onConfirm={(text) => {
+                    if (instructList.some((item) => item.name === text)) {
+                        Logger.warnToast(t('formatting.toast.configNameExists'))
+                        return
+                    }
+                    if (!currentInstruct) return
+
+                    Instructs.db.mutate
+                        .createInstruct({ ...currentInstruct, name: text })
+                        .then(async (newid) => {
+                            Logger.infoToast(t('formatting.toast.configCreated'))
+                            await loadInstruct(newid)
+                        })
+                }}
+            />
+
+            <KeyboardAwareScrollView
+                showsVerticalScrollIndicator={false}
+                style={{
+                    flex: 1,
+                    marginTop: 16,
+                }}
+                contentContainerStyle={{
+                    rowGap: spacing.xl,
+                    paddingHorizontal: spacing.xl,
+                }}>
                 <View
                     style={{
-                        paddingHorizontal: spacing.xl,
                         marginTop: spacing.xl,
                         paddingBottom: spacing.l,
                         flexDirection: 'row',
@@ -220,489 +322,218 @@ const FormattingManager = () => {
                             if (item.id === instructID) return
                             loadInstruct(item.id)
                         }}
-                        modalTitle="Select Config"
+                        modalTitle={t('formatting.selectConfig')}
                         search
                     />
                     <ThemedButton iconName="save" iconSize={28} variant="tertiary" />
                 </View>
-
-                <KeyboardAwareScrollView
-                    showsVerticalScrollIndicator={false}
-                    style={{
-                        flex: 1,
-                        marginTop: 16,
+                <SectionTitle>{t('instruct.formatting')}</SectionTitle>
+                <ThemedTextInput
+                    label={t('formatting.sections.systemPrompt')}
+                    value={currentInstruct.system_prompt}
+                    onChangeText={(text) => {
+                        handleUpdateInstructText('system_prompt', text)
                     }}
-                    contentContainerStyle={{
-                        rowGap: spacing.xl,
-                        paddingHorizontal: spacing.xl,
-                    }}>
-                    <SectionTitle>Instruct Formatting</SectionTitle>
-                    <ThemedTextInput
-                        label="System Prompt"
-                        value={currentInstruct.system_prompt}
-                        onChangeText={(text) => {
-                            setCurrentInstruct({
-                                ...currentInstruct,
-                                system_prompt: text,
-                            })
-                        }}
-                        numberOfLines={5}
-                        multiline
-                    />
+                    numberOfLines={5}
+                    multiline
+                />
 
-                    <ThemedTextInput
-                        label="System Prompt Format"
-                        value={currentInstruct.system_prompt_format}
-                        onChangeText={(text) => {
-                            setCurrentInstruct({
-                                ...currentInstruct,
-                                system_prompt_format: text,
-                            })
-                        }}
-                        numberOfLines={3}
-                        multiline
-                    />
-                    <View style={{ flexDirection: 'row', columnGap: spacing.m }}>
-                        <ThemedTextInput
-                            label="System Prefix"
-                            value={currentInstruct.system_prefix}
-                            onChangeText={(text) => {
-                                setCurrentInstruct({
-                                    ...currentInstruct,
-                                    system_prefix: text,
-                                })
-                            }}
-                            numberOfLines={5}
-                            multiline
-                        />
-                        <ThemedTextInput
-                            label="System Suffix"
-                            value={currentInstruct.system_suffix}
-                            onChangeText={(text) => {
-                                setCurrentInstruct({
-                                    ...currentInstruct,
-                                    system_suffix: text,
-                                })
-                            }}
-                            numberOfLines={5}
-                            multiline
-                        />
-                    </View>
-                    <View style={{ flexDirection: 'row', columnGap: spacing.m }}>
-                        <ThemedTextInput
-                            label="Input Prefix"
-                            value={currentInstruct.input_prefix}
-                            onChangeText={(text) => {
-                                setCurrentInstruct({
-                                    ...currentInstruct,
-                                    input_prefix: text,
-                                })
-                            }}
-                            numberOfLines={5}
-                            multiline
-                        />
-                        <ThemedTextInput
-                            label="Input Suffix"
-                            value={currentInstruct.input_suffix}
-                            onChangeText={(text) => {
-                                setCurrentInstruct({
-                                    ...currentInstruct,
-                                    input_suffix: text,
-                                })
-                            }}
-                            numberOfLines={5}
-                            multiline
-                        />
-                    </View>
-                    <View style={{ flexDirection: 'row', columnGap: spacing.m }}>
-                        <ThemedTextInput
-                            label="Output Prefix"
-                            value={currentInstruct.output_prefix}
-                            onChangeText={(text) => {
-                                setCurrentInstruct({
-                                    ...currentInstruct,
-                                    output_prefix: text,
-                                })
-                            }}
-                            numberOfLines={5}
-                            multiline
-                        />
-                        <ThemedTextInput
-                            label="Output Suffix"
-                            value={currentInstruct.output_suffix}
-                            onChangeText={(text) => {
-                                setCurrentInstruct({
-                                    ...currentInstruct,
-                                    output_suffix: text,
-                                })
-                            }}
-                            numberOfLines={5}
-                            multiline
-                        />
-                    </View>
+                <ThemedTextInput
+                    label={t('formatting.sections.systemPromptFormat')}
+                    value={currentInstruct.system_prompt_format}
+                    onChangeText={(text) => {
+                        handleUpdateInstructText('system_prompt_format', text)
+                    }}
+                    numberOfLines={3}
+                    multiline
+                />
 
-                    <View style={{ flexDirection: 'row' }}>
-                        <ThemedTextInput
-                            label="Last Output Prefix"
-                            value={currentInstruct.last_output_prefix}
-                            onChangeText={(text) => {
-                                setCurrentInstruct({
-                                    ...currentInstruct,
-                                    last_output_prefix: text,
-                                })
-                            }}
-                            numberOfLines={5}
-                            multiline
-                        />
-                    </View>
+                {completionType === 'chatCompletions' ? (
+                    <Accordion
+                        label={t('formatting.unused', {
+                            mode:
+                                appMode === 'local'
+                                    ? t('common.labels.model')
+                                    : t('common.labels.api'),
+                        })}>
+                        {AffixGrid()}
+                    </Accordion>
+                ) : (
+                    AffixGrid()
+                )}
 
-                    <StringArrayEditor
-                        containerStyle={{}}
-                        label="Stop Sequence"
-                        value={
-                            currentInstruct.stop_sequence
-                                ? currentInstruct.stop_sequence.split(',')
-                                : []
-                        }
-                        setValue={(data) => {
-                            setCurrentInstruct({
-                                ...currentInstruct,
-                                stop_sequence: data.join(','),
-                            })
-                        }}
-                        replaceNewLine="\n"
-                    />
+                <StringArrayEditor
+                    containerStyle={{}}
+                    label={t('formatting.sections.stopSequence')}
+                    value={
+                        currentInstruct.stop_sequence
+                            ? currentInstruct.stop_sequence.split(',')
+                            : []
+                    }
+                    setValue={(data) => {
+                        setCurrentInstruct({
+                            ...currentInstruct,
+                            stop_sequence: data.join(','),
+                        })
+                    }}
+                    replaceNewLine={String.fromCharCode(10)}
+                />
 
-                    <ThemedCheckbox
-                        label="Use Common Stop Sequences"
-                        value={currentInstruct.use_common_stop}
-                        onChangeValue={(b) => {
-                            setCurrentInstruct({
-                                ...currentInstruct,
-                                use_common_stop: b,
-                            })
-                        }}
-                    />
+                <ThemedCheckbox
+                    label={t('formatting.sections.useCommonStopSequences')}
+                    value={currentInstruct.use_common_stop}
+                    onChangeValue={(b) => {
+                        setCurrentInstruct({
+                            ...currentInstruct,
+                            use_common_stop: b,
+                        })
+                    }}
+                />
 
-                    <SectionTitle>Macros & Character Card</SectionTitle>
+                <SectionTitle>{t('instruct.macros')}</SectionTitle>
 
-                    <View
-                        style={{
-                            flexDirection: 'row',
-                            columnGap: spacing.xl2,
-                        }}>
-                        <View style={{ flex: 1 }}>
+                <Grid
+                    items={macroCardKeys}
+                    numColumns={2}
+                    columnGap={8}
+                    renderItem={(item) => {
+                        return (
                             <ThemedCheckbox
-                                label="Wrap In Newline"
-                                value={currentInstruct.wrap}
+                                label={t('formatting.sections.' + snakeToCamel(item))}
+                                value={currentInstruct[item]}
                                 onChangeValue={(b) => {
-                                    setCurrentInstruct({
-                                        ...currentInstruct,
-                                        wrap: b,
-                                    })
+                                    handleUpdateInstructBoolean(item, b)
                                 }}
                             />
-                            <ThemedCheckbox
-                                label="Include Names"
-                                value={currentInstruct.names}
-                                onChangeValue={(b) => {
-                                    setCurrentInstruct({
-                                        ...currentInstruct,
-                                        names: b,
-                                    })
-                                }}
-                            />
-                            <ThemedCheckbox
-                                label="Add Timestamp"
-                                value={currentInstruct.timestamp}
-                                onChangeValue={(b) => {
-                                    setCurrentInstruct({
-                                        ...currentInstruct,
-                                        timestamp: b,
-                                    })
-                                }}
-                            />
-                            <ThemedCheckbox
-                                label="Remove Think Tags"
-                                value={currentInstruct.hide_think_tags}
-                                onChangeValue={(b) => {
-                                    setCurrentInstruct({
-                                        ...currentInstruct,
-                                        hide_think_tags: b,
-                                    })
-                                }}
-                            />
-                        </View>
-                        <View style={{ flex: 1 }}>
-                            <ThemedCheckbox
-                                label="Use Examples"
-                                value={currentInstruct.examples}
-                                onChangeValue={(b) => {
-                                    setCurrentInstruct({
-                                        ...currentInstruct,
-                                        examples: b,
-                                    })
-                                }}
-                            />
-                            <ThemedCheckbox
-                                label="Use Scenario"
-                                value={currentInstruct.scenario}
-                                onChangeValue={(b) => {
-                                    setCurrentInstruct({
-                                        ...currentInstruct,
-                                        scenario: b,
-                                    })
-                                }}
-                            />
+                        )
+                    }}
+                />
 
+                <SectionTitle>{t('instruct.attachments')}</SectionTitle>
+                <Grid
+                    items={attachmentKeys}
+                    numColumns={2}
+                    columnGap={8}
+                    renderItem={(item) => {
+                        return (
                             <ThemedCheckbox
-                                label="Use Personality"
-                                value={currentInstruct.personality}
+                                label={t('formatting.sections.' + snakeToCamel(item))}
+                                value={currentInstruct[item]}
                                 onChangeValue={(b) => {
-                                    setCurrentInstruct({
-                                        ...currentInstruct,
-                                        personality: b,
-                                    })
+                                    handleUpdateInstructBoolean(item, b)
                                 }}
                             />
-                            <ThemedCheckbox
-                                label="Use Card System Prompt"
-                                value={currentInstruct.use_card_system_prompt}
-                                onChangeValue={(b) => {
-                                    setCurrentInstruct({
-                                        ...currentInstruct,
-                                        use_card_system_prompt: b,
-                                    })
-                                }}
-                            />
-                            <ThemedCheckbox
-                                label="Label Card Sections"
-                                value={currentInstruct.label_sections}
-                                onChangeValue={(b) => {
-                                    setCurrentInstruct({
-                                        ...currentInstruct,
-                                        label_sections: b,
-                                    })
-                                }}
-                            />
-                            <ThemedCheckbox
-                                label="Rules In User Message"
-                                value={currentInstruct.note_in_user_message}
-                                onChangeValue={(b) => {
-                                    setCurrentInstruct({
-                                        ...currentInstruct,
-                                        note_in_user_message: b,
-                                    })
-                                }}
-                            />
-                            <ThemedCheckbox
-                                label="Strict Role Alternation"
-                                value={currentInstruct.strict_alternation}
-                                onChangeValue={(b) => {
-                                    setCurrentInstruct({
-                                        ...currentInstruct,
-                                        strict_alternation: b,
-                                    })
-                                }}
-                            />
-                            <ThemedCheckbox
-                                label="Use Post-History Rules"
-                                value={currentInstruct.use_post_history}
-                                onChangeValue={(b) => {
-                                    setCurrentInstruct({
-                                        ...currentInstruct,
-                                        use_post_history: b,
-                                    })
-                                }}
-                            />
-                        </View>
-                    </View>
-                    <Text style={{ color: color.text._500, fontSize: 12, marginTop: 4 }}>
-                        Card System Prompt replaces the System Prompt above when a character defines
-                        one ({'{{original}}'} inserts it). Post-History Rules and Chat Memory are
-                        sent after the chat history so the model follows them closely. Enable Rules
-                        In User Message for models whose template rejects a system message mid-chat
-                        (Gemma). Strict Role Alternation merges same-role messages and adds a
-                        placeholder user turn before a greeting, for templates that reject anything
-                        but user/assistant/user (Gemma with --jinja).
-                    </Text>
+                        )
+                    }}
+                />
+                <ThemedSlider
+                    label={t('formatting.sections.attachmentDepth')}
+                    value={currentInstruct.attachment_depth}
+                    onValueChange={(value) => {
+                        setCurrentInstruct({
+                            ...currentInstruct,
+                            attachment_depth: value,
+                        })
+                    }}
+                    min={0}
+                    max={20}
+                    step={1}
+                    precision={0}
+                />
+                <Text style={{ color: color.text._500, fontSize: 12 }}>
+                    {t('instruct.attachmentDepth.description')}
+                </Text>
 
-                    <SectionTitle>Attachments</SectionTitle>
+                <SectionTitle>{t('instruct.prompt.title')}</SectionTitle>
+                <Grid
+                    items={promptKeys}
+                    numColumns={2}
+                    columnGap={8}
+                    renderItem={(item) => {
+                        return (
+                            <ThemedCheckbox
+                                label={t('formatting.sections.' + snakeToCamel(item))}
+                                value={currentInstruct[item]}
+                                onChangeValue={(b) => {
+                                    handleUpdateInstructBoolean(item, b)
+                                }}
+                            />
+                        )
+                    }}
+                />
+                <Text style={{ color: color.text._500, fontSize: 12, marginTop: 4 }}>
+                    {t('instruct.prompt.description')}
+                </Text>
 
-                    <View
-                        style={{
-                            flexDirection: 'row',
-                            columnGap: spacing.xl2,
-                            justifyContent: 'space-between',
-                        }}>
-                        <View style={{ flex: 1 }}>
-                            <ThemedCheckbox
-                                label="Send Images"
-                                value={currentInstruct.send_images}
-                                onChangeValue={(b) => {
-                                    setCurrentInstruct({
-                                        ...currentInstruct,
-                                        send_images: b,
-                                    })
-                                }}
-                            />
-                            <ThemedCheckbox
-                                label="Send Documents"
-                                value={currentInstruct.send_documents}
-                                onChangeValue={(b) => {
-                                    setCurrentInstruct({
-                                        ...currentInstruct,
-                                        send_documents: b,
-                                    })
-                                }}
-                            />
-                        </View>
-                        <View style={{ flex: 1 }}>
-                            <ThemedCheckbox
-                                label="Send Audio"
-                                value={currentInstruct.send_audio}
-                                onChangeValue={(b) => {
-                                    setCurrentInstruct({
-                                        ...currentInstruct,
-                                        send_audio: b,
-                                    })
-                                }}
-                            />
-                            <ThemedCheckbox
-                                label="Use Last Image Only"
-                                value={currentInstruct.last_image_only}
-                                onChangeValue={(b) => {
-                                    setCurrentInstruct({
-                                        ...currentInstruct,
-                                        last_image_only: b,
-                                    })
-                                }}
-                            />
-                        </View>
-                    </View>
-                    <ThemedSlider
-                        label="Attachment Depth"
-                        value={currentInstruct.attachment_depth}
-                        onValueChange={(value) => {
-                            setCurrentInstruct({
-                                ...currentInstruct,
-                                attachment_depth: value,
-                            })
-                        }}
-                        min={0}
-                        max={20}
-                        step={1}
-                        precision={0}
-                    />
-                    <Text style={{ color: color.text._500, fontSize: 12 }}>
-                        Images and audio are only sent from the last N messages, so an old picture
-                        is not re-read on every turn. Older messages keep a short note that an image
-                        was attached. 0 sends attachments from any message.
-                    </Text>
-
-                    <View style={{ rowGap: 8 }}>
-                        <SectionTitle>Text Formatter</SectionTitle>
-                        <Text
-                            style={{
-                                color: color.text._400,
-                            }}>
-                            Automatically formats first message to the style below:
-                        </Text>
-                        <View
-                            style={{
-                                backgroundColor: color.neutral._300,
-                                marginTop: spacing.m,
-                                paddingHorizontal: spacing.xl2,
-                                alignItems: 'center',
-                                borderRadius: borderRadius.m,
-                            }}>
-                            <Markdown
-                                markdownit={MarkdownStyle.Rules}
-                                rules={MarkdownStyle.RenderRules}
-                                style={markdownStyle}>
-                                {autoformatterData[currentInstruct.format_type].example}
-                            </Markdown>
-                        </View>
-                        <View>
-                            {autoformatterData.map((item, index) => (
-                                <ThemedCheckbox
-                                    key={item.label}
-                                    label={item.label}
-                                    value={currentInstruct.format_type === index}
-                                    onChangeValue={(b) => {
-                                        if (b)
-                                            setCurrentInstruct({
-                                                ...currentInstruct,
-                                                format_type: index,
-                                            })
-                                    }}
-                                />
-                            ))}
-                        </View>
-                    </View>
-
-                    <SectionTitle>Hidden Text</SectionTitle>
+                <View style={{ rowGap: 8 }}>
+                    <SectionTitle>{t('instruct.textformatter.title')}</SectionTitle>
                     <Text
                         style={{
                             color: color.text._400,
                         }}>
-                        Hides text that matches regex patterns defined below. (case insensitive)
+                        {t('instruct.textformatter.description')}:
                     </Text>
-
-                    <StringArrayEditor value={textFilter} setValue={setTextFilter} />
-
-                    <ThemedSwitch
-                        label="Send Filtered Text"
-                        description="Sends the filtered text for inference"
-                        value={sendFilteredText}
-                        onChangeValue={setSendFilteredText}
-                    />
-
-                    <SectionTitle>Local Template</SectionTitle>
-
-                    <ThemedSwitch
-                        label="Use Built-In Local Model Template"
-                        description="When in Local Mode, ChatterUI automatically uses the instruct template provided by the loaded model. Disable this if you want messages to be formatted using Instruct instead. System Prompt however is always used."
-                        value={useTemplate}
-                        onChangeValue={setUseTemplate}
-                    />
-
-                    {/* @TODO: Macros are always replaced - people may want this to be changed
-                            <CheckboxTitle
-                                name="Replace Macro In Sequences"
-                                varname="macro"
-                                body={currentInstruct}
-                                setValue={setCurrentInstruct}
+                    <View
+                        style={{
+                            backgroundColor: color.neutral._300,
+                            marginTop: spacing.m,
+                            paddingHorizontal: spacing.xl2,
+                            alignItems: 'center',
+                            borderRadius: borderRadius.m,
+                        }}>
+                        <Markdown
+                            markdownit={MarkdownStyle.Rules}
+                            rules={MarkdownStyle.RenderRules}
+                            style={markdownStyle}>
+                            {autoformatterData[currentInstruct.format_type].example}
+                        </Markdown>
+                    </View>
+                    <View>
+                        {autoformatterData.map((item, index) => (
+                            <ThemedCheckbox
+                                key={item.label}
+                                label={item.label}
+                                value={currentInstruct.format_type === index}
+                                onChangeValue={(b) => {
+                                    if (b)
+                                        setCurrentInstruct({
+                                            ...currentInstruct,
+                                            format_type: index,
+                                        })
+                                }}
                             />
-                            */}
+                        ))}
+                    </View>
+                </View>
 
-                    {/*  Groups are not implemented - leftover from ST
-                            <CheckboxTitle
-                                name="Force for Groups and Personas"
-                                varname="names_force_groups"
-                                body={currentInstruct}
-                                setValue={setCurrentInstruct}
-                            />
-                            */}
-                    {/* Activates Instruct when model is loaded with specific name that matches regex
-                    
-                            <TextBox
-                                name="Activation Regex"
-                                varname="activation_regex"
-                                body={currentInstruct}
-                                setValue={setCurrentInstruct}
-                            />*/}
-                    {/*    User Alignment Messages may be needed in future, might be removed on CCv3
-                            <TextBox
-                                name="User Alignment"
-                                varname="user_alignment_message"
-                                body={currentInstruct}
-                                setValue={setCurrentInstruct}
-                                multiline
-                            />*/}
-                </KeyboardAwareScrollView>
-            </SafeAreaView>
-        )
+                <SectionTitle>{t('instruct.hiddentext.title')}</SectionTitle>
+                <Text
+                    style={{
+                        color: color.text._400,
+                    }}>
+                    {t('instruct.hiddentext.description')}
+                </Text>
+
+                <StringArrayEditor value={textFilter} setValue={setTextFilter} />
+
+                <ThemedSwitch
+                    label={t('instruct.filteredtext.label')}
+                    description={t('instruct.filteredtext.description')}
+                    value={sendFilteredText}
+                    onChangeValue={setSendFilteredText}
+                />
+
+                <SectionTitle>{t('instruct.localtemplate.title')}</SectionTitle>
+
+                <ThemedSwitch
+                    label={t('instruct.localtemplate.label')}
+                    description={t('instruct.localtemplate.description')}
+                    value={useTemplate}
+                    onChangeValue={setUseTemplate}
+                />
+            </KeyboardAwareScrollView>
+        </SafeAreaView>
+    )
 }
 
 export default FormattingManager

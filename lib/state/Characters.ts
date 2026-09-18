@@ -1,15 +1,23 @@
 import { extractPngTextChunk, replacePngTextChunk } from '@vali98/react-native-png-utils'
 import { and, asc, desc, eq, gte, inArray, like, notExists, notInArray, sql } from 'drizzle-orm'
-import { useLiveQuery } from 'drizzle-orm/expo-sqlite'
 import { Asset } from 'expo-asset'
 import * as DocumentPicker from 'expo-document-picker'
 import { Paths } from 'expo-file-system'
-import { useEffect } from 'react'
+import { t } from 'i18next'
 import { z } from 'zod'
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 
-import { db as database } from '@db'
+import { db as database } from '@db/db'
+import {
+    characterGreetings,
+    characterTags,
+    characters,
+    chatEntries,
+    chatSwipes,
+    chats,
+    tags,
+} from '@db/schema'
 import { Tokenizer } from '@lib/engine/Tokenizer'
 import { Storage } from '@lib/enums/Storage'
 import {
@@ -21,15 +29,6 @@ import {
     saveStringToDownload,
 } from '@lib/utils/File'
 import { replaceMacroBase } from '@lib/utils/Macros'
-import {
-    characterGreetings,
-    characterTags,
-    characters,
-    chatEntries,
-    chatSwipes,
-    chats,
-    tags,
-} from 'db/schema'
 
 import { Logger } from './Logger'
 import { createMMKVStorage } from '../storage/MMKV'
@@ -40,6 +39,12 @@ export type CharInfo = {
     image_id: number
     last_modified: number
     tags: string[]
+    links: {
+        id: number
+        type: 'user_id' | 'instruct_id' | 'connection_index' | 'sampler_index' | 'model_id'
+        character_id: number
+        value: number
+    }[]
     latestSwipe?: string
     latestName?: string
     latestChat?: number
@@ -68,6 +73,14 @@ type CharacterCardState = {
 }
 
 export type CharacterCardData = Awaited<ReturnType<typeof Characters.db.query.cardQuery>>
+
+const CHARACTER_CARD_TEXT_CHUNK_KEYWORDS = [
+    'Description', // AI bot base description
+    'Comment', // incorrect migration, needs to be retained
+    'character_card',
+    'chara',
+    'ccv3',
+]
 
 export namespace Characters {
     export const useUserStore = create<CharacterCardState>()(
@@ -99,7 +112,7 @@ export namespace Characters {
                     const oldImageID = get().card?.image_id
                     const card = get().card
                     if (!id || !oldImageID || !card) {
-                        Logger.errorToast('Could not get data, something very wrong has happened!')
+                        Logger.errorToast(t('common.errors.couldNotGetData'))
                         return
                     }
                     const imageID = Date.now()
@@ -159,6 +172,7 @@ export namespace Characters {
                         persistedState.id = undefined
                         persistedState.card = undefined
                     }
+                    return persistedState
                 },
             }
         )
@@ -191,7 +205,7 @@ export namespace Characters {
             const oldImageID = get().card?.image_id
             const card = get().card
             if (!id || !oldImageID || !card) {
-                Logger.errorToast('Could not get data, something very wrong has happned!')
+                Logger.errorToast(t('common.errors.couldNotGetData'))
                 return
             }
             const imageID = Date.now()
@@ -255,6 +269,7 @@ export namespace Characters {
                             },
                         },
                         alternate_greetings: true,
+                        links: true,
                     },
                 })
             }
@@ -469,6 +484,7 @@ export namespace Characters {
                                 },
                             },
                         },
+                        links: true,
                     },
                     orderBy:
                         orderBy === 'name' ? dir(characters.name) : dir(characters.last_modified),
@@ -700,7 +716,10 @@ export namespace Characters {
                         }
                         return image_id
                     } catch (error) {
-                        Logger.errorToast(`Rolling back due to error: ` + error)
+                        Logger.errorToast(
+                            t('common.errors.rollingBackDueToError'),
+                            JSON.stringify(error)
+                        )
                         tx.rollback()
                         return undefined
                     }
@@ -712,7 +731,7 @@ export namespace Characters {
                 const card = await db.query.card(charId)
 
                 if (!card) {
-                    Logger.errorToast('Failed to copy card: Card does not exit')
+                    Logger.errorToast(t('character.editor.errors.copyCardNotExist'))
                     return
                 }
                 const imageDir = getImageDir(card.image_id)
@@ -740,7 +759,7 @@ export namespace Characters {
                 }
                 const cv2 = convertDBDataToCV2(card)
                 if (!cv2) {
-                    Logger.errorToast('Failed to copy card')
+                    Logger.errorToast(t('character.editor.errors.failedToCopyCard'))
                     return
                 }
                 await createCharacter(cv2, cacheLoc)
@@ -760,6 +779,21 @@ export namespace Characters {
                     .update(characters)
                     .set({ background_image: null })
                     .where(eq(characters.id, charId))
+            }
+        }
+
+        export namespace live {
+            export const listSimple = (type: 'character' | 'user') => {
+                return database.query.characters.findMany({
+                    columns: {
+                        id: true,
+                        name: true,
+                        image_id: true,
+                        last_modified: true,
+                    },
+                    where: (characters, { eq }) => eq(characters.type, type),
+                    orderBy: characters.id,
+                })
             }
         }
     }
@@ -791,7 +825,7 @@ export namespace Characters {
             await deleteImage(imageId)
             Logger.info(`Deleted image with id: ` + imageId)
         } catch (e) {
-            Logger.errorToast(`Failed to delete background`)
+            Logger.errorToast(t('character.editor.errors.deleteBackground'))
             Logger.error(`Error: ` + e)
         }
     }
@@ -824,18 +858,27 @@ export namespace Characters {
         try {
             const file = await readBase64Async(uri)
             if (!file) {
-                Logger.errorToast(`Failed to create card - Image could not be retrieved`)
+                Logger.errorToast(t('character.editor.errors.createFromImage'))
                 return
             }
-            const card = JSON.parse(extractPngTextChunk(file))
+            const [result] = extractPngTextChunk(file, {
+                keywords: CHARACTER_CARD_TEXT_CHUNK_KEYWORDS,
+            })
+
+            if (!result) {
+                Logger.errorToast(t('character.editor.errors.createFromImage'))
+                return
+            }
+
+            const card = JSON.parse(result.data)
             if (card === undefined) {
-                Logger.errorToast('No character was found.')
+                Logger.errorToast(t('character.editor.errors.cardNoCharacter'))
                 return
             }
 
             await createCharacterFromV2JSON(card, uri)
         } catch (e) {
-            Logger.errorToast('Failed to create character')
+            Logger.errorToast(t('character.editor.errors.createFailed'))
             Logger.error(`${e}`)
         }
     }
@@ -843,7 +886,7 @@ export namespace Characters {
     const createCharacterFromV1JSON = async (data: any, uri: string | undefined = undefined) => {
         const result = characterCardV1Schema.safeParse(data)
         if (result.error) {
-            Logger.errorToast('Invalid Character Card')
+            Logger.errorToast(t('character.editor.errors.invalidCharacterCard'))
             return
         }
         const converted = createBlankV2Card(result.data.name, result.data)
@@ -856,7 +899,7 @@ export namespace Characters {
         // check JSON def
         const result = characterCardV2Schema.safeParse(data)
         if (result.error) {
-            Logger.warnToast('V2 Parsing failed, falling back to V1')
+            Logger.warnToast(t('character.editor.errors.v2ParsingFailedFallingBack'))
             return await createCharacterFromV1JSON(data, uri)
         }
 
@@ -901,7 +944,11 @@ export namespace Characters {
         if (fileExists(imagePath)) {
             const fileData = await readBase64Async(imagePath)
             if (!fileData) return
-            const exportData = replacePngTextChunk(fileData, cardString)
+            const exportData = replacePngTextChunk(
+                fileData,
+                [{ data: cardString, keyword: 'chara', b64encode: true }],
+                { removeKeywords: CHARACTER_CARD_TEXT_CHUNK_KEYWORDS }
+            )
             await saveStringToDownload(exportData, exportedFileName + '.png', 'base64')
         } else {
             await saveStringToDownload(cardString, exportedFileName + '.json', 'utf8')
@@ -925,24 +972,9 @@ export namespace Characters {
             }
             await createCharacterFromImage(cardDefaultDir)
         } catch (e) {
-            Logger.errorToast('Failed to create default character')
+            Logger.errorToast(t('settings.character.errors.failedToCreateDefaultCharacter'))
             Logger.error('Error: ' + e)
         }
-    }
-
-    export const useCharacterUpdater = () => {
-        const { id, updateCard } = useCharacterStore((state) => ({
-            id: state.id,
-            updateCard: state.updateCard,
-        }))
-
-        const { data } = useLiveQuery(db.query.cardQuery(id ?? -1))
-
-        useEffect(() => {
-            if (id && id === data?.id) {
-                if (data) updateCard(data)
-            }
-        }, [data, id, updateCard])
     }
 }
 

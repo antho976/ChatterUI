@@ -1,4 +1,4 @@
-import { Entypo } from '@expo/vector-icons'
+import Octicons from '@react-native-vector-icons/octicons/static'
 import React, { useState } from 'react'
 import { Pressable, Text, TextStyle, View, ViewProps, ViewStyle } from 'react-native'
 
@@ -9,6 +9,7 @@ interface AccordionProps extends ViewProps {
     label?: string
     labelStyle?: TextStyle
     accordionStyle?: ViewStyle
+    bodyStyle?: ViewStyle
 }
 
 const Accordion: React.FC<AccordionProps> = ({
@@ -16,6 +17,7 @@ const Accordion: React.FC<AccordionProps> = ({
     label = '',
     labelStyle = {},
     accordionStyle = {},
+    bodyStyle = {},
     children,
     ...rest
 }) => {
@@ -40,7 +42,7 @@ const Accordion: React.FC<AccordionProps> = ({
                     ...accordionStyle,
                 }}>
                 <Text style={{ color: color.text._100, ...labelStyle }}>{label}</Text>
-                <Entypo
+                <Octicons
                     name={show ? 'chevron-up' : 'chevron-down'}
                     color={color.primary._800}
                     size={18}
@@ -49,16 +51,19 @@ const Accordion: React.FC<AccordionProps> = ({
 
             {show && (
                 <View
-                    style={{
-                        backgroundColor: color.neutral._100,
-                        borderColor: color.neutral._300,
-                        borderWidth: 2,
-                        paddingHorizontal: spacing.l,
-                        paddingTop: spacing.l,
-                        paddingBottom: spacing.m,
-                        borderBottomLeftRadius: borderRadius.m,
-                        borderBottomRightRadius: borderRadius.m,
-                    }}>
+                    style={[
+                        {
+                            backgroundColor: color.neutral._100,
+                            borderColor: color.neutral._300,
+                            borderWidth: 2,
+                            paddingHorizontal: spacing.l,
+                            paddingTop: spacing.l,
+                            paddingBottom: spacing.m,
+                            borderBottomLeftRadius: borderRadius.m,
+                            borderBottomRightRadius: borderRadius.m,
+                        },
+                        bodyStyle,
+                    ]}>
                     {children}
                 </View>
             )}

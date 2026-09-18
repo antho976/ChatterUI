@@ -1,3 +1,4 @@
+import { useTranslation } from 'react-i18next'
 import { Pressable, Text, View } from 'react-native'
 import { useMMKVBoolean } from 'react-native-mmkv'
 import { useShallow } from 'zustand/react/shallow'
@@ -19,15 +20,17 @@ type ChatTextProps = {
     nowGenerating: boolean
     isLastMessage: boolean
     isGreeting: boolean
+    entry: Chats.db.live.LiveEntry
 }
 
 const ChatBubble: React.FC<ChatTextProps> = ({
     index,
     nowGenerating,
+    entry,
     isLastMessage,
     isGreeting,
 }) => {
-    const message = Chats.useEntryData(index)
+    const { t } = useTranslation()
     const { appMode } = useAppMode()
     const [showTPS] = useMMKVBoolean(AppSettings.ShowTokenPerSecond)
     const { color, spacing, borderRadius, fontSize } = Theme.useTheme()
@@ -40,21 +43,23 @@ const ChatBubble: React.FC<ChatTextProps> = ({
 
     const showEditor = useChatEditorStore((state) => state.show)
     const handleEnableEdit = () => {
-        if (!nowGenerating) showEditor(index)
+        if (!nowGenerating) showEditor(entry.id)
     }
 
-    const hasSwipes = message?.swipes?.length > 1
-    const showSwipe = !message.is_user && isLastMessage && (hasSwipes || !isGreeting)
-    const timings = message.swipes[message.swipe_id].timings
+    const swipe = entry.swipes[0]
+    if (!entry || !swipe) return
 
+    const showSwipe = !entry.is_user && isLastMessage
+    const timings = swipe.timings
+    const bubbleColor = entry.is_user ? color.neutral._200 : color.neutral._200
     return (
         <View>
             <Pressable
                 onPress={() => {
-                    setShowOptions(nowGenerating ? undefined : index)
+                    setShowOptions(nowGenerating ? undefined : entry.id)
                 }}
                 style={{
-                    backgroundColor: color.neutral._200,
+                    backgroundColor: bubbleColor,
                     borderColor: color.neutral._200,
                     borderWidth: 1,
                     marginBottom: showSwipe ? 0 : 4,
@@ -75,11 +80,11 @@ const ChatBubble: React.FC<ChatTextProps> = ({
                 }}
                 onLongPress={handleEnableEdit}>
                 {isLastMessage ? (
-                    <ChatTextLast nowGenerating={nowGenerating} index={index} />
+                    <ChatTextLast nowGenerating={nowGenerating} swipe={swipe} />
                 ) : (
-                    <ChatText nowGenerating={nowGenerating} index={index} />
+                    <ChatText swipeText={swipe.swipe} />
                 )}
-                <ChatAttachments index={index} />
+                <ChatAttachments entry={entry} />
                 <View
                     style={{
                         flexDirection: 'row',
@@ -92,20 +97,28 @@ const ChatBubble: React.FC<ChatTextProps> = ({
                                 textAlign: 'right',
                                 fontSize: fontSize.s,
                             }}>
-                            {`Prompt: ${getFiniteValue(timings.prompt_per_second)} t/s`}
-                            {`   Text Gen: ${getFiniteValue(timings.predicted_per_second)} t/s`}
+                            {t('chat.bubble.promptSpeed', {
+                                tokens: getFiniteValue(timings.prompt_per_second),
+                                seconds: getFiniteValue(timings.prompt_ms / 1000),
+                            })}
+                            {t('chat.bubble.textGenerationSpeed', {
+                                tokens: getFiniteValue(timings.predicted_per_second),
+                                seconds: getFiniteValue(timings.predicted_ms / 1000),
+                            })}
                         </Text>
                     )}
 
                     <ChatQuickActions
                         nowGenerating={nowGenerating}
                         isLastMessage={isLastMessage}
+                        entryId={entry.id}
+                        swipe={swipe}
                         index={index}
                     />
                 </View>
             </Pressable>
             {showSwipe && (
-                <ChatSwipes index={index} nowGenerating={nowGenerating} isGreeting={isGreeting} />
+                <ChatSwipes swipe={swipe} nowGenerating={nowGenerating} isGreeting={isGreeting} />
             )}
         </View>
     )

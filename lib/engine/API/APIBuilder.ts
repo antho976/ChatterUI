@@ -1,4 +1,5 @@
 import { nativeApplicationVersion } from 'expo-application'
+import { t } from 'i18next'
 
 import { AppSettings, CLAUDE_VERSION } from '@lib/constants/GlobalValues'
 import { SSEFetch } from '@lib/engine/SSEFetch'
@@ -10,71 +11,41 @@ import { APIConfiguration } from './APIBuilder.types'
 import { buildContext, ContextBuilderParams } from './ContextBuilder'
 import { buildRequest, RequestBuilderParams } from './RequestBuilder'
 
+export type DataOutputType = 'text' | 'reasoning' | 'tool_call'
+
+type DataOutput = {
+    type: DataOutputType
+    content: string
+}
+
 export interface APIBuilderParams
     extends ContextBuilderParams,
         Omit<RequestBuilderParams, 'prompt'> {
-    onData: (data: string) => void
+    onData: (data: DataOutput) => void
     onEnd: (data: string) => void
     stopSequence: string[]
     stopGenerating: () => void
 }
 
-export const buildAndSendRequest = async ({
-    apiConfig,
-    apiValues,
-    onData,
-    onEnd,
-    instruct,
-    samplers,
-    character,
-    user,
-    messages,
-    chatMemory,
-    chatPreset,
-    stopSequence,
-    stopGenerating,
-    chatTokenizer,
-    tokenizer,
-    messageLoader,
-    maxLength,
-    cache,
-}: APIBuilderParams) => {
+export const buildAndSendRequest = async (params: APIBuilderParams) => {
+    const { stopGenerating, apiConfig, apiValues, stopSequence, onData, onEnd } = params
     try {
         let payload: any = undefined
         const bypassContextLength = mmkv.getBoolean(AppSettings.BypassContextLength)
-        const prompt = await buildContext({
-            apiConfig,
-            apiValues,
-            instruct,
-            character,
-            user,
-            messages,
-            chatMemory,
-            chatPreset,
-            chatTokenizer,
-            tokenizer,
-            messageLoader,
-            maxLength,
-            cache,
-            bypassContextLength,
-        })
+        const prompt = await buildContext({ ...params, bypassContextLength })
         if (prompt === undefined) {
-            Logger.errorToast(`Prompt construction failed`)
+            Logger.errorToast(t('generation.errors.promptConstructionFailed'))
             stopGenerating()
             return
         }
 
         payload = await buildRequest({
-            apiConfig,
-            apiValues,
-            samplers,
-            instruct,
+            ...params,
             prompt,
-            stopSequence,
         })
 
         if (!payload) {
-            Logger.errorToast(`Payload construction failed`)
+            Logger.errorToast(t('generation.errors.payloadConstructionFailed'))
             stopGenerating()
             return
         }
@@ -98,48 +69,37 @@ export const buildAndSendRequest = async ({
 
         const replaceStrings = constructReplaceStrings(stopSequence)
 
-        const parseOutput = (
-            event: any,
-            pattern: string | string[],
-            prefixThinkTag: boolean = false,
-            prefixExitThink: boolean = false
-        ) => {
+        const parseOutput = (event: any, pattern: string | string[], type: DataOutputType) => {
             try {
                 const data = getNestedValue(
                     typeof event === 'string' ? JSON.parse(event) : event,
                     pattern
                 ) as string | null
                 const text = data?.replaceAll(replaceStrings, '') ?? ''
-                if (text && prefixExitThink) onData('</think>')
-                if (text && prefixThinkTag) onData('<think>')
-                if (text) onData(text)
+                if (text) onData({ content: text, type: type })
                 return !!text?.trim()
             } catch (e) {
-                Logger.error(JSON.stringify(e))
+                Logger.error(e)
             }
             return false
         }
-        let inReasoning = false
+
+        const patternMapping: { pattern: string | string[]; type: DataOutputType }[] = [
+            { type: 'text', pattern: apiConfig.request.responseParsePattern },
+        ]
+        const reasonPattern = apiConfig.request.reasoningParsePattern
+
         const isChatCompletions = apiConfig.request.completionType.type === 'chatCompletions'
+        if (reasonPattern && isChatCompletions) {
+            patternMapping.push({ type: 'reasoning', pattern: reasonPattern })
+        }
 
         return response({
             endpoint: apiValues.endpoint,
             payload: payload,
             onEvent: (event) => {
-                if (
-                    parseOutput(event, apiConfig.request.responseParsePattern, false, inReasoning)
-                ) {
-                    inReasoning = false
-                    return
-                }
-                const reasonPattern = apiConfig.request.reasoningParsePattern
-                // do not prefix think tags on text completions
-                if (
-                    reasonPattern &&
-                    isChatCompletions &&
-                    parseOutput(event, reasonPattern, !inReasoning)
-                ) {
-                    inReasoning = true
+                for (const pattern of patternMapping) {
+                    if (parseOutput(event, pattern.pattern, pattern.type)) break
                 }
             },
             onEnd: onEnd,
@@ -147,7 +107,7 @@ export const buildAndSendRequest = async ({
             stopGenerating: stopGenerating,
         })
     } catch (e) {
-        Logger.errorToast('Completion failed: ' + e)
+        Logger.errorToast(t('generation.errors.completionFailed'), e)
         stopGenerating()
     }
 }
@@ -264,7 +224,7 @@ const readableStreamResponse = async (senderParams: SenderParams) => {
         try {
             const a = JSON.parse(data)
             if (a?.error) {
-                Logger.errorToast('Error Logged')
+                Logger.errorToast(t('generation.errors.sseFailed'))
                 Logger.error(data)
             }
         } catch {}
@@ -272,7 +232,7 @@ const readableStreamResponse = async (senderParams: SenderParams) => {
     })
 
     sse.setOnError(() => {
-        Logger.errorToast('Generation Failed')
+        Logger.errorToast(t('generation.errors.generationFailed'))
         closeStream()
     })
 

@@ -1,11 +1,13 @@
-import { useState } from 'react'
+import { useEffect } from 'react'
 import { StyleSheet, Text, View } from 'react-native'
+import Animated from 'react-native-reanimated'
 import { useShallow } from 'zustand/react/shallow'
 
 import ThemedButton from '@components/buttons/ThemedButton'
 import ThemedSwitch from '@components/input/ThemedSwitch'
-import Alert from '@components/views/Alert'
-import { APIManagerValue, APIManager } from '@lib/engine/API/APIManagerState'
+import { useBottomSheetRef } from '@components/views/BottomSheet'
+import { APIManager, APIManagerValue } from '@lib/engine/API/APIManagerState'
+import useAnimatedActiveColorStyle from '@lib/hooks/AnimatedActiveColorStyle'
 import { Theme } from '@lib/theme/ThemeManager'
 
 import ConnectionEditor from './ConnectionEditor'
@@ -13,46 +15,32 @@ import ConnectionEditor from './ConnectionEditor'
 type ConnectionItemProps = {
     item: APIManagerValue
     index: number
+    pendingOpen?: number
 }
 
-const ConnectionItem: React.FC<ConnectionItemProps> = ({ item, index }) => {
-    const { spacing } = Theme.useTheme()
+const ConnectionItem: React.FC<ConnectionItemProps> = ({ item, index, pendingOpen }) => {
+    const { spacing, color } = Theme.useTheme()
     const styles = useStyles()
-    const [showEditor, setShowEditor] = useState(false)
-    const { removeValue, editValue } = APIManager.useConnectionsStore(
+    const editorRef = useBottomSheetRef()
+    const { editValue } = APIManager.useConnectionsStore(
         useShallow((state) => ({
-            removeValue: state.removeValue,
             editValue: state.editValue,
         }))
     )
 
-    const handleDelete = () => {
-        Alert.alert({
-            title: 'Delete API Entry',
-            description: `Are you sure you want to delete "${item.friendlyName}"?`,
-            buttons: [
-                { label: 'Cancel' },
-                {
-                    label: 'Delete API',
-                    onPress: () => {
-                        removeValue(index)
-                    },
-                    type: 'warning',
-                },
-            ],
-        })
-    }
+    useEffect(() => {
+        if (index === pendingOpen) editorRef.current?.open()
+    }, [editorRef, index, pendingOpen])
+
+    const animatedStyle = useAnimatedActiveColorStyle({
+        deactiveColor: color.neutral._200,
+        activeColor: color.primary._500,
+        active: item.active,
+    })
 
     return (
-        <View style={item.active ? styles.longContainer : styles.longContainerInactive}>
-            <ConnectionEditor
-                index={index}
-                originalValues={item}
-                show={showEditor}
-                close={() => {
-                    setShowEditor(false)
-                }}
-            />
+        <Animated.View style={[styles.longContainer, animatedStyle]}>
+            <ConnectionEditor index={index} originalValues={item} ref={editorRef} />
             <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
                 <ThemedSwitch
                     value={item.active}
@@ -66,27 +54,18 @@ const ConnectionItem: React.FC<ConnectionItemProps> = ({ item, index }) => {
                         {item.friendlyName}
                     </Text>
                     <Text style={item.active ? styles.config : styles.configInactive}>
-                        Config: {item.configName}
+                        {item.configName}
                     </Text>
                 </View>
             </View>
-            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                <ThemedButton
-                    onPress={handleDelete}
-                    variant="critical"
-                    iconName="delete"
-                    iconSize={24}
-                    buttonStyle={{ borderWidth: 0 }}
-                />
-                <ThemedButton
-                    onPress={() => setShowEditor(true)}
-                    variant="tertiary"
-                    iconName="edit"
-                    iconSize={24}
-                    buttonStyle={{ borderWidth: 0 }}
-                />
-            </View>
-        </View>
+            <ThemedButton
+                onPress={() => editorRef.current?.open()}
+                variant="tertiary"
+                iconName="edit"
+                iconSize={24}
+                buttonStyle={{ borderWidth: 0 }}
+            />
+        </Animated.View>
     )
 }
 
@@ -96,20 +75,6 @@ const useStyles = () => {
     const { color, spacing, borderWidth, fontSize } = Theme.useTheme()
     return StyleSheet.create({
         longContainer: {
-            borderColor: color.primary._500,
-            borderWidth: borderWidth.m,
-            flexDirection: 'row',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            borderRadius: spacing.xl,
-            flex: 1,
-            paddingLeft: spacing.xl,
-            paddingRight: spacing.xl,
-            paddingVertical: spacing.xl,
-        },
-
-        longContainerInactive: {
-            borderColor: color.neutral._200,
             borderWidth: borderWidth.m,
             flexDirection: 'row',
             justifyContent: 'space-between',

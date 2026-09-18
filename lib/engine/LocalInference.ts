@@ -1,6 +1,11 @@
+import { JinjaFormattedChatResult } from 'cui-llama.rn'
+import { t } from 'i18next'
+
 import Alert from '@components/views/Alert'
+import { CompletionTimings } from '@db/schema'
 import { AppSettings } from '@lib/constants/GlobalValues'
 import { SamplerConfigData, SamplerID, Samplers } from '@lib/constants/SamplerData'
+import { isCloseThinkTag, isOpenThinkTag } from '@lib/markdown/ThinkTags'
 import { Characters } from '@lib/state/Characters'
 import { Chats, useInference } from '@lib/state/Chat'
 import { ChatPresets } from '@lib/state/ChatPresets'
@@ -9,7 +14,6 @@ import { Logger } from '@lib/state/Logger'
 import { SamplersManager } from '@lib/state/SamplerState'
 import { useTTSStore } from '@lib/state/TTS'
 import { mmkv } from '@lib/storage/MMKV'
-import { CompletionTimings } from 'db/schema'
 
 import { APIConfiguration, APISampler, APIValues } from './API/APIBuilder.types'
 import {
@@ -44,6 +48,7 @@ export const localSamplerData: APISampler[] = [
     { externalName: 'dry_multiplier', samplerID: SamplerID.DRY_MULTIPLIER },
     { externalName: 'dry_sequence_breakers', samplerID: SamplerID.DRY_SEQUENCE_BREAK },
     { externalName: 'dry_penalty_last_n', samplerID: SamplerID.DRY_PENALTY_LAST_N },
+    { externalName: 'thinking_budget_tokens', samplerID: SamplerID.REASONING_MAX_TOKENS },
 ]
 
 const getSamplerFields = (max_length?: number) => {
@@ -74,6 +79,7 @@ const buildLocalPayload = async () => {
     const payloadFields = getSamplerFields()
     const rep_pen = payloadFields?.['penalty_repeat']
     const reasoning = payloadFields?.['enable_thinking'] as boolean
+    let thinkTags = {}
     const localPreset: LlamaConfig = Llama.useLlamaPreferencesStore.getState().config
     let prompt: undefined | string = undefined
     let mediaPaths: string[] = []
@@ -115,8 +121,22 @@ const buildLocalPayload = async () => {
                 else if (typeof result === 'object') {
                     prompt = result.prompt
                     mediaPaths = result.media_paths ?? []
+                    if (reasoning && result.type === 'jinja') {
+                        const jinjaResult = result as JinjaFormattedChatResult
+                        const thinking_end_tag = jinjaResult.thinking_end_tag
+                        const thinking_start_tag = jinjaResult.thinking_start_tag
+                        const thinking_forced_open = true
+
+                        if (thinking_end_tag && thinking_start_tag)
+                            thinkTags = {
+                                thinking_end_tag,
+                                thinking_start_tag,
+                                thinking_forced_open,
+                            }
+                    }
+
                     if (mediaPaths.length > 0 && !hasImage && !hasAudio) {
-                        Logger.warnToast('Media was added without multimodal support.')
+                        Logger.warnToast(t('model.toast.mediaAddedWithoutMultimodalSupport'))
                     }
                 }
             }
@@ -147,7 +167,7 @@ const buildLocalPayload = async () => {
     }
 
     if (!prompt) {
-        Logger.errorToast('Failed to build prompt')
+        Logger.errorToast(t('generation.errors.failedToBuildPrompt'))
         return
     }
 
@@ -161,6 +181,7 @@ const buildLocalPayload = async () => {
         stop: constructStopSequence(),
         emit_partial_completion: true,
         ...finalMediaPaths,
+        ...thinkTags,
     }
 }
 
@@ -171,7 +192,7 @@ const constructStopSequence = (): string[] => {
 
 const stopGenerating = () => {
     // kept this helper for extendability
-    Chats.useChatState.getState().stopGenerating()
+    useInference.getState().stopGenerating()
 }
 
 const constructReplaceStrings = (): string[] => {
@@ -192,25 +213,25 @@ const verifyModelLoaded = async (): Promise<boolean> => {
         const autoLoad = mmkv.getBoolean(AppSettings.AutoLoadLocal)
         // If  autoload is disabled, just return
         if (!autoLoad) {
-            Logger.warnToast('No Model Loaded')
+            Logger.warnToast(t('model.toast.noModelLoaded'))
             return false
         }
 
         // by default, autoload will attempt to load the last model used
         if (!lastModel) {
-            Logger.warnToast('No Auto-Load Model Set')
+            Logger.warnToast(t('model.toast.noAutoLoadModelSet'))
             return false
         }
 
         // attempt to load model
         if (lastModel) {
-            Logger.infoToast(`Auto-loading Model: ${lastModel.name}`)
+            Logger.infoToast(t('model.toast.autoLoadingModel', { name: lastModel.name }))
             await Llama.useLlamaModelStore.getState().load(lastModel)
         }
 
         const lastMmproj = Llama.useLlamaPreferencesStore.getState().lastMmproj
         if (lastMmproj) {
-            Logger.infoToast(`Auto-loading MMPROJ: ${lastMmproj.name}`)
+            Logger.infoToast(t('model.toast.autoLoadingMMPROJ', { name: lastMmproj.name }))
             await Llama.useLlamaModelStore.getState().loadMmproj(lastMmproj)
         }
     }
@@ -228,7 +249,7 @@ export const localInference = async () => {
         const context = Llama.useLlamaModelStore.getState().context
 
         if (!context) {
-            Logger.warnToast('No Model Loaded')
+            Logger.warnToast(t('model.toast.noModelLoaded'))
             stopGenerating()
             return
         }
@@ -236,7 +257,7 @@ export const localInference = async () => {
         const payload = await buildLocalPayload()
 
         if (!payload) {
-            Logger.warnToast('Failed to build payload')
+            Logger.warnToast(t('generation.errors.failedToBuildPayload'))
             stopGenerating()
             return
         }
@@ -277,7 +298,7 @@ export const localInference = async () => {
         }
         await runLocalCompletion(payload)
     } catch (e) {
-        Logger.errorToast('Failed to run local inference: ' + e)
+        Logger.errorToast(t('model.toast.failedToRunLocalInference'), e)
         stopGenerating()
     }
 }
@@ -285,27 +306,44 @@ export const localInference = async () => {
 const runLocalCompletion = async (
     payload: NonNullable<Awaited<ReturnType<typeof buildLocalPayload>>>
 ) => {
-    const replace = RegExp(
+    const stopRegex = RegExp(
         constructReplaceStrings()
             .map((item) => item.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
             .join(`|`),
         'g'
     )
 
+    const cleanStopString = (text: string) => {
+        return text.replaceAll(stopRegex, '')
+    }
+
     useInference.getState().setAbort(async () => {
         await Llama.useLlamaModelStore.getState().stopCompletion()
     })
 
+    let reasoningMode = false
     const outputStream = (text: string) => {
-        Chats.useChatState.getState().insertBuffer(text)
-        useTTSStore.getState().insertBuffer(text)
+        const cleaned = cleanStopString(text)
+        Chats.useChatState.getState().insertToBuffer(cleanStopString(text))
+        /**
+         * @TODO implement think seperation for TTS
+         */
+        if (reasoningMode) {
+            if (isCloseThinkTag(cleaned)) {
+                reasoningMode = false
+            }
+            return
+        }
+
+        if (isOpenThinkTag(cleaned)) {
+            reasoningMode = true
+            return
+        }
+        useTTSStore.getState().insertBuffer(cleanStopString(text))
     }
 
     const outputCompleted = (text: string, timings: CompletionTimings) => {
-        const regenCache = Chats.useChatState.getState().getRegenCache()
-        Chats.useChatState
-            .getState()
-            .setBuffer({ data: (regenCache + text).replaceAll(replace, ''), timings: timings })
+        Chats.useChatState.getState().setBufferTimings(timings)
         if (mmkv.getBoolean(AppSettings.PrintContext)) Logger.info(`Completion Output:\n${text}`)
         stopGenerating()
     }
@@ -316,7 +354,7 @@ const runLocalCompletion = async (
         .getState()
         .completion({ ...payload, n_threads: engineData.threads }, outputStream, outputCompleted)
         .catch((error) => {
-            Logger.errorToast(`Failed to generate locally: ${error}`)
+            Logger.errorToast(t('model.toast.failedToGenerateLocally'), JSON.stringify(error))
             stopGenerating()
         })
 }
@@ -396,36 +434,44 @@ const obtainFields = async (): Promise<ContextBuilderParams | void> => {
     try {
         const userState = Characters.useUserStore.getState()
         const characterState = Characters.useCharacterStore.getState()
-        const chatState = Chats.useChatState.getState()
 
         const instructState = Instructs.useInstruct.getState()
 
         const userCard = userState.card
         if (!userCard) {
-            Logger.errorToast('No loaded user')
+            Logger.errorToast(t('generation.errors.noUser'))
             return
         }
 
         const characterCard = characterState.card
         if (!characterCard) {
-            Logger.errorToast('No loaded character')
+            Logger.errorToast(t('generation.errors.noCharacter'))
             return
         }
-        const messages = chatState.data?.messages
-        if (!messages) {
-            Logger.errorToast('No chat character')
+        const chatId = await Chats.useChatState.getState().id
+        if (!chatId) {
+            Logger.errorToast(t('generation.errors.noActiveChat'))
             return
         }
 
+        const messages = (await Chats.db.query.chat(chatId))?.messages
+        if (!messages) {
+            Logger.errorToast(t('generation.errors.noChatFound'))
+            return
+        }
+        const chatData = await Chats.db.query.chatShallow(chatId)
+
         const apiValues = localAPIValues
         if (!apiValues) {
-            Logger.warnToast(`No Active API`)
+            Logger.warnToast(t('generation.errors.noActiveAPI'))
             return
         }
 
         const apiConfig = localAPIConfig
         if (!apiConfig) {
-            Logger.errorToast(`Configuration "${apiValues?.configName}" not found`)
+            Logger.errorToast(
+                t('generation.errors.configurationNotFound', { name: apiValues?.configName })
+            )
             return
         }
 
@@ -443,17 +489,26 @@ const obtainFields = async (): Promise<ContextBuilderParams | void> => {
             character: Object.assign({}, characterCard),
             user: Object.assign({}, userCard),
             messages: [...messages],
-            chatMemory: chatState.data?.memory ?? '',
-            chatPreset: chatState.data
-                ? await ChatPresets.db.query.activeForChat(
-                      chatState.data.id,
-                      chatState.data.active_preset_id
-                  )
+            chatMemory: chatData?.memory ?? '',
+            chatPreset: chatData
+                ? await ChatPresets.db.query.activeForChat(chatId, chatData.active_preset_id)
                 : null,
             chatTokenizer: async (entry, index) => {
                 // IMPORTANT - we use -1 for dummy entries
                 if (entry.id === -1) return 0
-                return await chatState.getTokenCount(index)
+                const [activeSwipe] = entry.swipes.filter((item) => item.active)
+                if (!activeSwipe) return 0
+                const tokenCount = activeSwipe.token_count ?? 0
+                if (tokenCount === 0 && activeSwipe.swipe.length > 0) {
+                    // assume that token length hasnt been calculated
+                    const tokenCount = await Llama.useLlamaModelStore.getState().tokenLength(
+                        activeSwipe.swipe,
+                        entry.attachments.map((item) => item.uri)
+                    )
+                    Chats.db.mutate.updateSwipeTokenLength(activeSwipe.id, tokenCount)
+                }
+
+                return tokenCount
             },
             tokenizer: Llama.useLlamaModelStore.getState().tokenLength,
             maxLength: length,
@@ -465,6 +520,6 @@ const obtainFields = async (): Promise<ContextBuilderParams | void> => {
             },
         }
     } catch (e) {
-        Logger.errorToast('Failed to orchestrate request build: ' + e)
+        Logger.errorToast(t('generation.errors.failedToOrchestrateRequestBuild'), e)
     }
 }

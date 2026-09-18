@@ -1,7 +1,8 @@
 import { useRouter } from 'expo-router'
-import { useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { useShallow } from 'zustand/react/shallow'
 
+import { useBottomSheetRef } from '@components/views/BottomSheet'
 import ContextMenu from '@components/views/ContextMenu'
 import InputSheet from '@components/views/InputSheet'
 import { Characters } from '@lib/state/Characters'
@@ -13,6 +14,7 @@ type CharacterNewMenuProps = {
 }
 
 const CharacterNewMenu: React.FC<CharacterNewMenuProps> = ({ nowLoading, setNowLoading }) => {
+    const { t } = useTranslation()
     const { setCurrentCard } = Characters.useCharacterStore(
         useShallow((state) => ({
             setCurrentCard: state.setCard,
@@ -21,11 +23,11 @@ const CharacterNewMenu: React.FC<CharacterNewMenuProps> = ({ nowLoading, setNowL
     )
 
     const router = useRouter()
-    const [showNewChar, setShowNewChar] = useState<boolean>(false)
+    const inputRef = useBottomSheetRef()
 
     const handleCreateCharacter = async (text: string) => {
         if (!text) {
-            Logger.errorToast('Name Cannot Be Empty!')
+            Logger.errorToast(t('character.list.errors.nameEmpty'))
             return
         }
         Characters.db.mutate.createCard(text).then(async (id) => {
@@ -40,20 +42,22 @@ const CharacterNewMenu: React.FC<CharacterNewMenuProps> = ({ nowLoading, setNowL
     return (
         <>
             <InputSheet
-                visible={showNewChar}
-                setVisible={setShowNewChar}
-                title="Create New Character"
+                ref={inputRef}
+                title={t('character.list.actions.createNewCharacter')}
                 onConfirm={handleCreateCharacter}
-                verifyText={(text) => (text.length === 0 ? 'Name cannot be empty' : '')}
+                verifyText={(text) =>
+                    text.length === 0 ? t('character.list.errors.nameCannotBeEmpty') : ''
+                }
                 placeholder="Name..."
                 autoFocus
+                confirmLabel={t('common.actions.create')}
             />
 
             <ContextMenu
                 triggerIcon="user-add"
                 buttons={[
                     {
-                        label: 'Import From File',
+                        label: t('character.list.actions.importFromFile'),
                         onPress: (close) => {
                             Characters.importCharacter()
                             close()
@@ -61,9 +65,9 @@ const CharacterNewMenu: React.FC<CharacterNewMenuProps> = ({ nowLoading, setNowL
                         icon: 'upload',
                     },
                     {
-                        label: 'Create Character',
+                        label: t('character.list.actions.createCharacter'),
                         onPress: (close) => {
-                            setShowNewChar(true)
+                            inputRef.current?.open()
                             close()
                         },
                         icon: 'edit',

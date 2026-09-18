@@ -1,5 +1,6 @@
-import { AntDesign } from '@expo/vector-icons'
+import AntDesign from '@react-native-vector-icons/ant-design/static'
 import React, { useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import {
     Text,
     TextInput,
@@ -29,18 +30,19 @@ type StringArrayEditorProps = {
 }
 
 const StringArrayEditor: React.FC<StringArrayEditorProps> = ({
-    containerStyle = undefined,
-    label = undefined,
+    containerStyle,
+    label,
     value,
     setValue,
-    replaceNewLine = undefined,
+    replaceNewLine,
     allowDuplicates = false,
-    placeholder = 'Enter value...',
+    placeholder,
     allowBlank = false,
     suggestions = [],
     filterOnly = false,
     showSuggestionsOnEmpty = false,
 }) => {
+    const { t } = useTranslation()
     const { color, borderRadius } = Theme.useTheme()
     const styles = useStyles()
     const [newData, setNewData] = useState('')
@@ -53,11 +55,11 @@ const StringArrayEditor: React.FC<StringArrayEditorProps> = ({
 
     const addData = (newData: string) => {
         if (newData === '') {
-            Logger.warnToast('Value cannot be empty')
+            Logger.warnToast(t('stringArrayEditor.emptyValueError'))
             return
         }
         if (value.includes(newData)) {
-            Logger.warnToast('Value already exists')
+            Logger.warnToast(t('stringArrayEditor.duplicateValueError'))
             return
         }
         setNewData('')
@@ -94,7 +96,7 @@ const StringArrayEditor: React.FC<StringArrayEditorProps> = ({
                         }}>
                         {!filterOnly && (
                             <Text style={{ color: color.text._400, marginBottom: 4 }}>
-                                Suggestions
+                                {t('common.labels.suggestions')}
                             </Text>
                         )}
                         <ScrollView
@@ -129,11 +131,16 @@ const StringArrayEditor: React.FC<StringArrayEditorProps> = ({
                         onChangeText={setNewData}
                         keyboardType="default"
                         multiline
-                        placeholder={placeholder}
+                        placeholder={placeholder ?? t('stringArrayEditor.placeholder')}
                         placeholderTextColor={color.text._700}
                     />
 
-                    {!filterOnly && <ThemedButton label="Add" onPress={() => addData(newData)} />}
+                    {!filterOnly && (
+                        <ThemedButton
+                            label={t('stringArrayEditor.add')}
+                            onPress={() => addData(newData)}
+                        />
+                    )}
                 </View>
             </View>
         </View>

@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { ScrollView, StyleSheet, Text, View } from 'react-native'
 import { useShallow } from 'zustand/react/shallow'
 
@@ -7,10 +8,12 @@ import ThemedButton from '@components/buttons/ThemedButton'
 import DropdownSheet from '@components/input/DropdownSheet'
 import MultiDropdownSheet from '@components/input/MultiDropdownSheet'
 import ThemedTextInput from '@components/input/ThemedTextInput'
-import BottomSheet from '@components/views/BottomSheet'
+import Alert from '@components/views/Alert'
+import BottomSheet, { BottomSheetRef } from '@components/views/BottomSheet'
 import { CLAUDE_VERSION } from '@lib/constants/GlobalValues'
-import { APIConfiguration } from '@lib/engine/API/APIBuilder.types'
+import { APIValues } from '@lib/engine/API/APIBuilder.types'
 import { APIManager, APIManagerValue } from '@lib/engine/API/APIManagerState'
+import { useDebounce } from '@lib/hooks/Debounce'
 import { Logger } from '@lib/state/Logger'
 import { Theme } from '@lib/theme/ThemeManager'
 import { isInsecureEndpoint } from '@lib/utils/Network'
@@ -18,76 +21,97 @@ import { getNestedValue } from '@lib/utils/Parsing'
 
 type ConnectionEditorProps = {
     index: number
-    show: boolean
-    close: () => void
+    ref: BottomSheetRef
     originalValues: APIManagerValue
 }
 
-const ConnectionEditor: React.FC<ConnectionEditorProps> = ({
-    index,
-    show,
-    close,
-    originalValues,
-}) => {
+const ConnectionEditor: React.FC<ConnectionEditorProps> = ({ index, ref, originalValues }) => {
     const { color, fontSize } = Theme.useTheme()
     const styles = useStyles()
+    const { t } = useTranslation()
 
-    const { editValue, getTemplates } = APIManager.useConnectionsStore(
-        useShallow((state) => ({
-            getTemplates: state.getTemplates,
-            editValue: state.editValue,
-        }))
-    )
-
-    const [template, setTemplate] = useState<APIConfiguration>(getTemplates()[0])
+    const { editValue, getTemplates, removeValue, addValue, showCustomFields } =
+        APIManager.useConnectionsStore(
+            useShallow((state) => ({
+                removeValue: state.removeValue,
+                getTemplates: state.getTemplates,
+                editValue: state.editValue,
+                addValue: state.addValue,
+                showCustomFields: state.preferences.showCustomFields,
+            }))
+        )
 
     const [values, setValues] = useState<APIManagerValue>(originalValues)
     const [modelList, setModelList] = useState<any[]>([])
 
-    useEffect(() => {
-        const newTemplate = getTemplates().find((item) => item.name === values.configName)
-        if (!newTemplate) {
-            Logger.errorToast('Could not get valid template!')
-            close()
-            return
-        }
+    const template = useMemo(() => {
+        return getTemplates().find((item) => item.name === values.configName) ?? getTemplates()[0]
+    }, [values.configName, getTemplates])
 
-        setTemplate(newTemplate)
-    }, [close, values, getTemplates])
-
-    const handleGetModelList = useCallback(async () => {
-        if (!template.features.useModel || !show) return
-        const auth: any = {}
-        if (template.features.useKey) {
-            auth[template.request.authHeader] = template.request.authPrefix + values.key
-            if (template.name === 'Claude') {
-                auth['anthropic-version'] = CLAUDE_VERSION
+    const handleGetModelList = useCallback(
+        async (values: APIValues) => {
+            if (!template.features.useModel) return
+            const auth: any = {}
+            if (template.features.useKey) {
+                auth[template.request.authHeader] = template.request.authPrefix + values.key
+                if (template.name === 'Claude') {
+                    auth['anthropic-version'] = CLAUDE_VERSION
+                }
             }
-        }
-        const result = await fetch(values.modelEndpoint, { headers: { ...auth } })
-        const data = await result.json()
-        if (result.status !== 200) {
-            Logger.error(`Could not retrieve models: ${data?.error?.message}`)
-            return
-        }
-        const models = getNestedValue(data, template.model.modelListParser)
-        setModelList(models)
-    }, [show, template, values])
-    // TODO: Replace with react query
+            const result = await fetch(values.modelEndpoint, { headers: { ...auth } })
+            if (result.status !== 200) {
+                Logger.error(t('connections.add.error.200', { error: `${result.status}` }))
+                return
+            }
+
+            const data = await result.json().catch(() => null)
+            if (!data) return
+
+            const models = getNestedValue(data, template.model.modelListParser)
+            setModelList(models)
+        },
+        [template, t]
+    )
+
+    const debouncedModelList = useDebounce(handleGetModelList, 300)
+
     useEffect(() => {
+        // eslint-disable-next-line react-hooks/set-state-in-effect
         setValues(originalValues)
-        handleGetModelList()
-    }, [originalValues, handleGetModelList])
+    }, [originalValues])
+
+    useEffect(() => {
+        debouncedModelList(values)
+    }, [debouncedModelList, values])
+
+    const handleDelete = () => {
+        Alert.alert({
+            title: t('connections.item.delete.title'),
+            description: t('connections.item.delete.description', {
+                name: originalValues.friendlyName,
+            }),
+            buttons: [
+                { label: t('common.actions.cancel') },
+                {
+                    label: t('connections.item.delete.button'),
+                    onPress: () => {
+                        removeValue(index)
+                    },
+                    type: 'warning',
+                },
+            ],
+        })
+    }
+
+    if (values.configName !== template.name) {
+        Logger.errorToast(
+            t('connections.editor.invalidTemplate'),
+            `${template.name} - ${values.configName}`
+        )
+    }
 
     return (
-        <BottomSheet
-            sheetStyle={{ flex: 2 }}
-            visible={show}
-            onClose={close}
-            setVisible={(v) => {
-                if (v) return
-                close()
-            }}>
+        <BottomSheet sheetStyle={{ flex: 2, maxHeight: '80%' }} ref={ref}>
             <View style={styles.mainContainer}>
                 <Text
                     style={{
@@ -96,15 +120,15 @@ const ConnectionEditor: React.FC<ConnectionEditorProps> = ({
                         fontWeight: '500',
                         paddingBottom: 16,
                     }}>
-                    Edit Connection
+                    {t('connections.editor.title')}
                 </Text>
 
                 <ScrollView
                     style={{ flex: 1 }}
                     showsVerticalScrollIndicator={false}
-                    contentContainerStyle={{ rowGap: 12, paddingBottom: 32 }}>
+                    contentContainerStyle={{ rowGap: 16, paddingBottom: 32 }}>
                     <ThemedTextInput
-                        label="Friendly Name"
+                        label={t('connections.editor.friendlyName')}
                         value={values.friendlyName}
                         onChangeText={(value) => {
                             setValues({ ...values, friendlyName: value })
@@ -114,52 +138,27 @@ const ConnectionEditor: React.FC<ConnectionEditorProps> = ({
                     {template.ui.editableCompletionPath && (
                         <View>
                             <ThemedTextInput
-                                label="Completion URL"
+                                label={t('connections.editor.completionUrl')}
                                 value={values.endpoint}
                                 onChangeText={(value) => {
                                     setValues({ ...values, endpoint: value })
                                 }}
                             />
-                            <Text style={styles.hintText}>Note: Use full URL path</Text>
+                            <Text style={styles.hintText}>
+                                {t('connections.editor.fullUrlHint')}
+                            </Text>
                             {isInsecureEndpoint(values.endpoint) && (
                                 <Text style={styles.insecureText}>
-                                    This endpoint uses plain HTTP. Everything you send can be read
-                                    on the network. Use an https:// address when you can (see
-                                    docs/SecureConnections.md).
+                                    {t('connections.editor.insecureEndpoint')}
                                 </Text>
                             )}
-                        </View>
-                    )}
-
-                    {template.ui.editableModelPath && (
-                        <View>
-                            <ThemedTextInput
-                                label="Model URL"
-                                value={values.modelEndpoint}
-                                onChangeText={(value) => {
-                                    setValues({ ...values, modelEndpoint: value })
-                                }}
-                            />
-                            <HeartbeatButton
-                                api={values.modelEndpoint ?? ''}
-                                apiFormat={(s) => s}
-                                headers={
-                                    template.features.useKey
-                                        ? {
-                                              [template.request.authHeader]:
-                                                  template.request.authPrefix + values.key,
-                                          }
-                                        : {}
-                                }
-                                callback={handleGetModelList}
-                            />
                         </View>
                     )}
 
                     {template.features.useKey && (
                         <ThemedTextInput
                             secureTextEntry
-                            label="API Key"
+                            label={t('connections.editor.apiKey')}
                             value={values.key}
                             onChangeText={(value) => {
                                 setValues({ ...values, key: value })
@@ -167,9 +166,36 @@ const ConnectionEditor: React.FC<ConnectionEditorProps> = ({
                         />
                     )}
 
+                    {template.ui.editableModelPath && (
+                        <View style={{ flexDirection: 'row' }}>
+                            <ThemedTextInput
+                                label={t('connections.editor.modelUrl')}
+                                value={values.modelEndpoint}
+                                onChangeText={(value) => {
+                                    setValues({ ...values, modelEndpoint: value })
+                                }}
+                            />
+                            <View style={{ marginTop: 20 }}>
+                                <HeartbeatButton
+                                    api={values.modelEndpoint ?? ''}
+                                    apiFormat={(s) => s}
+                                    headers={
+                                        template.features.useKey
+                                            ? {
+                                                  [template.request.authHeader]:
+                                                      template.request.authPrefix + values.key,
+                                              }
+                                            : {}
+                                    }
+                                    callback={() => handleGetModelList(values)}
+                                />
+                            </View>
+                        </View>
+                    )}
+
                     {template.features.useModel && (
                         <View style={{ rowGap: 4 }}>
-                            <Text style={styles.title}>Model</Text>
+                            <Text style={styles.title}>{t('connections.editor.model')}</Text>
                             <View
                                 style={{
                                     flexDirection: 'row',
@@ -188,7 +214,7 @@ const ConnectionEditor: React.FC<ConnectionEditorProps> = ({
                                             setValues({ ...values, model: item })
                                         }}
                                         search={modelList.length > 10}
-                                        modalTitle="Select Model"
+                                        modalTitle={t('connections.editor.selectModel')}
                                     />
                                 )}
                                 {template.features.multipleModels && (
@@ -203,17 +229,9 @@ const ConnectionEditor: React.FC<ConnectionEditorProps> = ({
                                             setValues({ ...values, model: item })
                                         }}
                                         search={modelList.length > 10}
-                                        modalTitle="Select Model"
+                                        modalTitle={t('connections.editor.selectModel')}
                                     />
                                 )}
-                                <ThemedButton
-                                    onPress={() => {
-                                        handleGetModelList()
-                                    }}
-                                    iconName="reload"
-                                    iconSize={18}
-                                    variant="secondary"
-                                />
                             </View>
                         </View>
                     )}
@@ -221,37 +239,76 @@ const ConnectionEditor: React.FC<ConnectionEditorProps> = ({
                     {template.features.useFirstMessage && (
                         <View>
                             <ThemedTextInput
-                                label="First Message"
+                                label={t('connections.editor.firstMessage')}
                                 value={values.firstMessage}
                                 onChangeText={(value) => {
                                     setValues({ ...values, firstMessage: value })
                                 }}
                             />
                             <Text style={styles.hintText}>
-                                Default first message sent to Claude
+                                {t('connections.editor.firstMessageHint')}
                             </Text>
                         </View>
                     )}
                     {template.features.usePrefill && (
                         <View>
                             <ThemedTextInput
-                                label="Prefill"
+                                label={t('connections.editor.prefill')}
                                 value={values.prefill}
                                 onChangeText={(value) => {
                                     setValues({ ...values, prefill: value })
                                 }}
                             />
-                            <Text style={styles.hintText}>Prefill before model response</Text>
+                            <Text style={styles.hintText}>
+                                {t('connections.editor.prefillHint')}
+                            </Text>
                         </View>
                     )}
+                    {showCustomFields && (
+                        <ThemedTextInput
+                            label={t('connections.editor.customFields')}
+                            value={values.customFields ?? ''}
+                            onChangeText={(value) => {
+                                setValues({ ...values, customFields: value })
+                            }}
+                            multiline
+                            numberOfLines={4}
+                        />
+                    )}
                 </ScrollView>
-                <ThemedButton
-                    label="Save Changes"
-                    onPress={() => {
-                        editValue(values, index)
-                        close()
-                    }}
-                />
+                <View
+                    style={{
+                        flexDirection: 'row',
+                        paddingTop: 8,
+                        justifyContent: 'space-between',
+                    }}>
+                    <ThemedButton
+                        variant="critical"
+                        iconName="delete"
+                        label={t('common.actions.delete')}
+                        onPress={handleDelete}
+                    />
+                    <ThemedButton
+                        variant="tertiary"
+                        iconName="copy"
+                        label={t('common.actions.clone')}
+                        onPress={() => {
+                            const newName = values.friendlyName + ` (${t('common.actions.clone')})`
+                            const newValue = { ...values, friendlyName: newName }
+                            addValue(newValue)
+                            ref.current?.close()
+                        }}
+                    />
+                    <ThemedButton
+                        variant="secondary"
+                        label={t('common.actions.save')}
+                        iconName="save"
+                        onPress={() => {
+                            editValue(values, index)
+                            ref.current?.close()
+                        }}
+                    />
+                </View>
             </View>
         </BottomSheet>
     )

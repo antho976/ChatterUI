@@ -1,5 +1,7 @@
-import { FontAwesome } from '@expo/vector-icons'
+import AntDesign from '@react-native-vector-icons/ant-design/static'
+import MaterialIcons from '@react-native-vector-icons/material-icons/static'
 import React from 'react'
+import { useTranslation } from 'react-i18next'
 import { Text, View } from 'react-native'
 import * as Progress from 'react-native-progress'
 
@@ -11,6 +13,7 @@ interface ContextLimitPreviewProps {
 }
 
 const ContextLimitPreview: React.FC<ContextLimitPreviewProps> = ({ generatedLength }) => {
+    const { t } = useTranslation()
     const { color } = Theme.useTheme()
     const contextLimit = useContextLimit()
     const leftover = Math.max(0, contextLimit - generatedLength)
@@ -29,7 +32,8 @@ const ContextLimitPreview: React.FC<ContextLimitPreviewProps> = ({ generatedLeng
                 borderColor: color.primary._200,
             }}>
             <Text style={{ color: color.text._100 }}>
-                Context Allocation <Text style={{ color: color.text._400 }}>({contextLimit})</Text>
+                {t('contextlimit.allocation')}{' '}
+                <Text style={{ color: color.text._400 }}>({contextLimit})</Text>
             </Text>
             <Progress.Bar
                 progress={limit}
@@ -40,30 +44,41 @@ const ContextLimitPreview: React.FC<ContextLimitPreviewProps> = ({ generatedLeng
                 borderRadius={12}
                 width={null}
             />
-            <View style={{ flexDirection: 'row', columnGap: 24 }}>
-                <Text style={{ color: color.text._400 }}>
-                    <FontAwesome
-                        name={warning ? 'exclamation-circle' : 'circle'}
+            <View style={{ flexDirection: 'row', columnGap: 4, alignItems: 'center' }}>
+                {warning ? (
+                    <AntDesign
+                        name={'exclamation-circle'}
+                        size={16}
                         style={{
-                            color: warning ? color.error._300 : color.primary._400,
+                            color: color.error._400,
                         }}
-                    />{' '}
-                    Chat Context: {leftover}
-                </Text>
-                <Text style={{ color: color.text._400 }}>
-                    <FontAwesome
+                    />
+                ) : (
+                    <MaterialIcons
                         name="circle"
+                        size={16}
                         style={{
-                            color: genLengthColor,
+                            color: color.primary._400,
                         }}
-                    />{' '}
-                    Generated: {generatedLength}
+                    />
+                )}
+                <Text style={{ color: color.text._400, textAlign: 'center' }}>
+                    {t('contextlimit.chat')}: {leftover}
+                </Text>
+                <MaterialIcons
+                    name="circle"
+                    size={16}
+                    style={{
+                        color: genLengthColor,
+                        marginLeft: 12,
+                    }}
+                />
+                <Text style={{ color: color.text._400, textAlign: 'center' }}>
+                    {t('contextlimit.generated')}: {generatedLength}
                 </Text>
             </View>
             {warning && (
-                <Text style={{ color: color.error._300 }}>
-                    Low Chat Context will forget messages faster
-                </Text>
+                <Text style={{ color: color.error._300 }}>{t('contextlimit.warning')}</Text>
             )}
         </View>
     )

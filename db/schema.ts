@@ -1,5 +1,13 @@
-import { relations } from 'drizzle-orm'
-import { integer, primaryKey, sqliteTable, text } from 'drizzle-orm/sqlite-core'
+import { relations, sql } from 'drizzle-orm'
+import {
+    check,
+    index,
+    integer,
+    primaryKey,
+    sqliteTable,
+    text,
+    unique,
+} from 'drizzle-orm/sqlite-core'
 
 // TAVERN V2 SPEC
 
@@ -52,9 +60,7 @@ export const characterTags = sqliteTable(
             .notNull()
             .references(() => tags.id, { onDelete: 'cascade' }),
     },
-    (table) => {
-        return { pk: primaryKey({ columns: [table.character_id, table.tag_id] }) }
-    }
+    (table) => [primaryKey({ columns: [table.character_id, table.tag_id] })]
 )
 
 export const characterRelations = relations(characters, ({ many }) => ({
@@ -62,6 +68,7 @@ export const characterRelations = relations(characters, ({ many }) => ({
     tags: many(characterTags),
     lorebooks: many(characterLorebooks),
     chats: many(chats),
+    links: many(characterLinks),
 }))
 
 export const greetingsRelations = relations(characterGreetings, ({ one }) => ({
@@ -84,6 +91,42 @@ export const characterTagsRelations = relations(characterTags, ({ one }) => ({
 
 export const tagsRelations = relations(tags, ({ many }) => ({
     characters: many(characterTags),
+}))
+
+// for now, use strict naming convention for _index based stores
+// this is needed as removals require shifting all db values of [type_index] by -1
+export const linkTypes = [
+    'user_id',
+    'instruct_id',
+    'connection_index',
+    'sampler_index',
+    'model_id',
+] as const
+
+export type LinkType = (typeof linkTypes)[number]
+
+export const characterLinks = sqliteTable(
+    'characterLinks',
+    {
+        id: integer('id', { mode: 'number' }).notNull().primaryKey(),
+        character_id: integer('character_id', { mode: 'number' })
+            .notNull()
+            .references(() => characters.id, { onDelete: 'cascade' }),
+        value: integer('value', { mode: 'number' }).notNull(),
+        type: text('type', {
+            enum: linkTypes,
+        }).notNull(),
+    },
+    (table) => [
+        unique('character_links_character_id_type_unique').on(table.character_id, table.type),
+    ]
+)
+
+export const characterLinkRelations = relations(characterLinks, ({ one }) => ({
+    character: one(characters, {
+        fields: [characterLinks.character_id],
+        references: [characters.id],
+    }),
 }))
 
 // CHATS
@@ -174,30 +217,39 @@ export const chatEntries = sqliteTable('chat_entries', {
         .references(() => chats.id, { onDelete: 'cascade' }),
     is_user: integer('is_user', { mode: 'boolean' }).notNull(),
     name: text('name').notNull(),
+    /** @deprecated this value is never used */
     order: integer('order').notNull(),
+    /** @deprecated use 'chatSwipe.active' instead */
     swipe_id: integer('swipe_id', { mode: 'number' }).default(0).notNull(),
 })
 
-export const chatSwipes = sqliteTable('chat_swipes', {
-    id: integer('id', { mode: 'number' }).primaryKey({ autoIncrement: true }),
-    entry_id: integer('entry_id', { mode: 'number' })
-        .notNull()
-        .references(() => chatEntries.id, { onDelete: 'cascade' }),
-    swipe: text('swipe').notNull().default(''),
+export const chatSwipes = sqliteTable(
+    'chat_swipes',
+    {
+        id: integer('id', { mode: 'number' }).primaryKey({ autoIncrement: true }),
+        entry_id: integer('entry_id', { mode: 'number' })
+            .notNull()
+            .references(() => chatEntries.id, { onDelete: 'cascade' }),
+        swipe: text('swipe').notNull().default(''),
 
-    send_date: integer('send_date', { mode: 'timestamp' })
-        .notNull()
-        .$defaultFn(() => new Date()),
+        send_date: integer('send_date', { mode: 'timestamp' })
+            .notNull()
+            .$defaultFn(() => new Date()),
 
-    gen_started: integer('gen_started', { mode: 'timestamp' })
-        .notNull()
-        .$defaultFn(() => new Date()),
+        gen_started: integer('gen_started', { mode: 'timestamp' })
+            .notNull()
+            .$defaultFn(() => new Date()),
 
-    gen_finished: integer('gen_finished', { mode: 'timestamp' })
-        .notNull()
-        .$defaultFn(() => new Date()),
-    timings: text('timings', { mode: 'json' }).$type<CompletionTimings>(),
-})
+        gen_finished: integer('gen_finished', { mode: 'timestamp' })
+            .notNull()
+            .$defaultFn(() => new Date()),
+        timings: text('timings', { mode: 'json' }).$type<CompletionTimings>(),
+        active: integer('active', { mode: 'boolean' }).notNull().default(false),
+        token_length: integer('token_length', { mode: 'number' }),
+        reset_length: integer('reset_length', { mode: 'number' }),
+    },
+    (table) => [index('chat_swipes_entry_active_idx').on(table.entry_id, table.active)]
+)
 
 export const chatsRelations = relations(chats, ({ many, one }) => ({
     messages: many(chatEntries),
@@ -324,9 +376,11 @@ export const lorebooks = sqliteTable('lorebooks', {
     id: integer('id', { mode: 'number' }).primaryKey(),
     name: text('name').notNull(),
     description: text('description').notNull(),
-    scanDepth: integer('scan_depth'),
-    tokenBudget: integer('token_budget'),
-    recursiveScanning: integer('recursive_scanning', { mode: 'boolean' }).default(false),
+    scan_depth: integer('scan_depth'),
+    token_budget: integer('token_budget'),
+    recursive_scanning: integer('recursive_scanning', { mode: 'boolean' }).default(false),
+    // not in spec, specific for app use
+    active: integer('active', { mode: 'boolean' }).default(false),
 })
 
 export const lorebookEntries = sqliteTable('lorebook_entries', {
@@ -334,14 +388,27 @@ export const lorebookEntries = sqliteTable('lorebook_entries', {
     lorebook_id: integer('lorebook_id', { mode: 'number' })
         .notNull()
         .references(() => lorebooks.id, { onDelete: 'cascade' }),
-    keys: text('keys').notNull(),
-    content: text('content').notNull(),
-    enable: integer('enable', { mode: 'boolean' }).default(true),
-    insertion_order: integer('insertion_order').default(100),
-    case_sensitive: integer('case_sensitive', { mode: 'boolean' }).default(true),
-
+    keys: text('keys', { mode: 'json' })
+        .notNull()
+        .$type<string[]>()
+        .notNull()
+        .$defaultFn(() => []),
+    content: text('content')
+        .notNull()
+        .$defaultFn(() => ''),
+    enable: integer('enable', { mode: 'boolean' }).default(true).notNull(),
+    insertion_order: integer('insertion_order').default(100).notNull(),
+    case_sensitive: integer('case_sensitive', { mode: 'boolean' }).default(true).notNull(),
     name: text('name').notNull(),
-    priority: integer('priority').default(100),
+    priority: integer('priority').default(100).notNull(),
+
+    selective: integer('selective', { mode: 'boolean' }).default(false).notNull(),
+    constant: integer('constant', { mode: 'boolean' }).default(false).notNull(),
+    comment: text('comment').default('').notNull(),
+    secondary_keys: text('secondary_keys', { mode: 'json' })
+        .notNull()
+        .$type<string[]>()
+        .$defaultFn(() => []),
 })
 
 export const characterLorebooks = sqliteTable(
@@ -354,9 +421,7 @@ export const characterLorebooks = sqliteTable(
             onDelete: 'cascade',
         }),
     },
-    (table) => {
-        return { pk: primaryKey({ columns: [table.character_id, table.lorebook_id] }) }
-    }
+    (table) => [primaryKey({ columns: [table.character_id, table.lorebook_id] })]
 )
 
 export const lorebooksRelations = relations(lorebooks, ({ many }) => ({
@@ -422,11 +487,7 @@ export const model_mmproj_links = sqliteTable(
             .notNull()
             .references(() => model_data.id, { onDelete: 'cascade' }),
     },
-    (table) => {
-        return {
-            pk: primaryKey({ columns: [table.model_id, table.mmproj_id] }),
-        }
-    }
+    (table) => [primaryKey({ columns: [table.model_id, table.mmproj_id] })]
 )
 
 export const modelDataRelations = relations(model_data, ({ one }) => ({
@@ -442,7 +503,50 @@ export const modelDataRelations = relations(model_data, ({ one }) => ({
     }),
 }))
 
-// Types
+export const authorNotes = sqliteTable(
+    'author_notes',
+    {
+        id: integer('id', { mode: 'number' }).primaryKey({ autoIncrement: true }),
+        name: text('name').notNull().default('New Note'),
+        content: text('content').notNull().default(''),
+        note: text('note').notNull().default(''),
+        priority: integer('priority', { mode: 'number' }).default(0),
+        depth: integer('depth', { mode: 'number' }).default(0),
+        active: integer('active', { mode: 'boolean' }).notNull().default(true),
+        token_length: integer('token_length', { mode: 'number' }),
+        // linking features
+        chat_id: integer('chat_id', { mode: 'number' }).references(() => chats.id, {
+            onDelete: 'cascade',
+        }),
+        character_id: integer('character_id', { mode: 'number' }).references(() => characters.id, {
+            onDelete: 'cascade',
+        }),
+    },
+    (table) => [
+        check(
+            'notes_ownership_check',
+            sql`${table.chat_id} IS NULL OR ${table.character_id} IS NULL`
+        ),
+        /**Index Justification
+         *  Users will likely have very few `active` notes allowing indexes on `active` to be efficient
+         *  However to avoid coupling logic between notes and chat/character, we want to rely on a foreign key
+         *  to trigger the delete on this note. Because of this, we do this funky indexing.
+         */
+        // for chat and characters, leftside index optimizations can be used for both UI and inference query
+        index('author_notes_chat_active_idx').on(table.chat_id, table.active),
+        index('author_notes_character_active_idx').on(table.character_id, table.active),
+        // we split global into two indexes, one retains dual null tables without active for UI query
+        index('author_notes_global_idx')
+            .on(table.id)
+            .where(sql`${table.chat_id} IS NULL AND ${table.character_id} IS NULL`),
+        // while we keep on active + dual null for actual inference
+        index('author_notes_global_active_idx')
+            .on(table.active)
+            .where(
+                sql`${table.chat_id} IS NULL AND ${table.character_id} IS NULL AND ${table.active} = 1`
+            ),
+    ]
+)
 
 export type ModelDataType = typeof model_data.$inferSelect
 export type ChatSwipe = typeof chatSwipes.$inferSelect
@@ -450,7 +554,8 @@ export type ChatEntryType = typeof chatEntries.$inferSelect
 export type ChatType = typeof chats.$inferSelect
 export type ChatAttachmentType = typeof chatAttachments.$inferSelect
 export type ChatPresetType = typeof chatPresets.$inferSelect
-
+export type LorebookType = typeof lorebooks.$inferSelect
+export type LorebookEntryType = typeof lorebookEntries.$inferSelect
 export type CompletionTimings = {
     predicted_per_token_ms: number
     predicted_per_second: number | null

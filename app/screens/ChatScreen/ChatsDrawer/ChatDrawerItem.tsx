@@ -1,4 +1,4 @@
-import { AntDesign, Ionicons } from '@expo/vector-icons'
+import MaterialIcons from '@react-native-vector-icons/material-icons/static'
 import { StyleSheet, Text, View } from 'react-native'
 
 import { Chats } from '@lib/state/Chat'
@@ -28,11 +28,17 @@ const ChatDrawerItem: React.FC<ChatDrawerItemProps> = ({ item, onLoad }) => {
                             {item.name}
                         </Text>
                         {item.ghost && (
-                            <AntDesign name="eye-invisible" size={16} color={color.primary._500} />
+                            <MaterialIcons
+                                name="visibility-off"
+                                size={16}
+                                color={color.primary._500}
+                            />
                         )}
-                        {item.hidden && <AntDesign name="lock" size={16} color={color.text._500} />}
+                        {item.hidden && (
+                            <MaterialIcons name="lock" size={16} color={color.text._500} />
+                        )}
                         {item.memory.length > 0 && (
-                            <AntDesign name="book" size={16} color={color.text._500} />
+                            <MaterialIcons name="book" size={16} color={color.text._500} />
                         )}
                     </View>
                     <View
@@ -43,7 +49,11 @@ const ChatDrawerItem: React.FC<ChatDrawerItemProps> = ({ item, onLoad }) => {
                             justifyContent: 'space-between',
                         }}>
                         <View style={{ flexDirection: 'row' }}>
-                            <Ionicons name="chatbox" size={20} color={color.text._400} />
+                            <MaterialIcons
+                                name="chat-bubble-outline"
+                                size={20}
+                                color={color.text._700}
+                            />
                             <Text style={styles.smallTextChat}>{item.entryCount}</Text>
                         </View>
                         <View style={{ flexDirection: 'row' }}>
@@ -89,8 +99,8 @@ const useStyles = () => {
             borderWidth: borderWidth.m,
             borderColor: color.primary._500,
         },
-        smallText: { color: color.text._400, marginLeft: spacing.l },
-        smallTextChat: { color: color.text._400, marginLeft: spacing.sm },
+        smallText: { color: color.text._700, marginLeft: spacing.l },
+        smallTextChat: { color: color.text._600, marginLeft: spacing.sm },
 
         editButton: {
             paddingHorizontal: spacing.m,

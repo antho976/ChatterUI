@@ -1,7 +1,10 @@
-import { AntDesign } from '@expo/vector-icons'
+import AntDesign from '@react-native-vector-icons/ant-design/static'
 import * as DocumentPicker from 'expo-document-picker'
-import React, { useEffect, useState } from 'react'
-import { StyleSheet, Text, View } from 'react-native'
+import { useNavigation } from 'expo-router'
+import { usePreventRemove } from 'expo-router/build/react-navigation'
+import { useEffect, useState } from 'react'
+import { useTranslation } from 'react-i18next'
+import { StyleSheet, View } from 'react-native'
 import { useShallow } from 'zustand/react/shallow'
 
 import ThemedButton from '@components/buttons/ThemedButton'
@@ -15,9 +18,11 @@ import { useAvatarViewerStore } from '@lib/state/components/AvatarViewer'
 import { Theme } from '@lib/theme/ThemeManager'
 
 const UserCardEditor = () => {
+    const { t } = useTranslation()
     const styles = useStyles()
     const { color, spacing } = Theme.useTheme()
-
+    const navigation = useNavigation()
+    const [edited, setEdited] = useState(false)
     const { userCard, imageID, id, setCard, updateImage } = Characters.useUserStore(
         useShallow((state) => ({
             userCard: state.card,
@@ -33,12 +38,19 @@ const UserCardEditor = () => {
     const setShowViewer = useAvatarViewerStore((state) => state.setShow)
 
     useEffect(() => {
+        // eslint-disable-next-line react-hooks/set-state-in-effect
         setCurrentCard(userCard)
     }, [userCard])
 
-    const saveCard = async () => {
+    const updateCard = (card: CharacterCardData) => {
+        setEdited(true)
+        setCurrentCard(card)
+    }
+
+    const handleSaveCard = async () => {
         if (currentCard && id) {
             await Characters.db.mutate.updateCard(currentCard, id)
+            setEdited(false)
             setCard(id)
         }
     }
@@ -55,12 +67,12 @@ const UserCardEditor = () => {
 
     const handleDeleteImage = () => {
         Alert.alert({
-            title: `Delete Image`,
-            description: `Are you sure you want to delete this image? This cannot be undone.`,
+            title: t('users.edit.image.delete'),
+            description: t('users.edit.image.deletedesc'),
             buttons: [
-                { label: 'Cancel' },
+                { label: t('common.actions.cancel') },
                 {
-                    label: 'Delete Image',
+                    label: t('users.edit.image.delete'),
                     onPress: () => {
                         Characters.deleteImage(imageID)
                     },
@@ -70,6 +82,31 @@ const UserCardEditor = () => {
         })
     }
 
+    usePreventRemove(edited, ({ data }) => {
+        if (!userCard) return
+        Alert.alert({
+            title: t('character.editor.dialogs.unsavedChanges.title'),
+            description: t('character.editor.dialogs.unsavedChanges.description'),
+            buttons: [
+                { label: t('common.actions.cancel') },
+                {
+                    label: t('common.actions.save'),
+                    onPress: async () => {
+                        await handleSaveCard()
+                        navigation.dispatch(data.action)
+                    },
+                },
+                {
+                    label: t('character.editor.dialogs.unsavedChanges.discard'),
+                    onPress: () => {
+                        navigation.dispatch(data.action)
+                    },
+                    type: 'warning',
+                },
+            ],
+        })
+    })
+
     return (
         <View style={styles.userContainer}>
             <AvatarViewer editorButton={false} />
@@ -78,7 +115,7 @@ const UserCardEditor = () => {
                     placement="right"
                     buttons={[
                         {
-                            label: 'Change Image',
+                            label: t('users.edit.image.change'),
                             icon: 'picture',
                             onPress: (close) => {
                                 close()
@@ -86,7 +123,7 @@ const UserCardEditor = () => {
                             },
                         },
                         {
-                            label: 'View Image',
+                            label: t('users.edit.image.view'),
                             icon: 'search',
                             onPress: (close) => {
                                 close()
@@ -94,7 +131,7 @@ const UserCardEditor = () => {
                             },
                         },
                         {
-                            label: 'Delete Image',
+                            label: t('users.edit.image.delete'),
                             icon: 'delete',
                             onPress: (close) => {
                                 close()
@@ -109,46 +146,58 @@ const UserCardEditor = () => {
                     />
                     <AntDesign name="edit" color={color.text._100} style={styles.editHover} />
                 </ContextMenu>
-                <ThemedTextInput
-                    multiline
-                    numberOfLines={10}
-                    label="Name"
-                    value={currentCard?.name ?? ''}
-                    onChangeText={(text) => {
-                        if (currentCard)
-                            setCurrentCard({
-                                ...currentCard,
-                                name: text,
-                            })
-                    }}
-                    placeholder="Empty names are discouraged!"
-                />
+                <View style={{ marginLeft: spacing.xl2, rowGap: 12, flex: 1 }}>
+                    <View
+                        style={{
+                            flexDirection: 'row',
+                            columnGap: 4,
+                        }}>
+                        <ThemedButton
+                            disabled={!edited}
+                            iconName="save"
+                            iconSize={20}
+                            label={t('common.actions.save')}
+                            onPress={handleSaveCard}
+                            variant={edited ? 'secondary' : 'disabled'}
+                        />
+                    </View>
+
+                    <ThemedTextInput
+                        style={{ height: 36 }}
+                        value={currentCard?.name ?? ''}
+                        onChangeText={(text) => {
+                            if (currentCard)
+                                updateCard({
+                                    ...currentCard,
+                                    name: text,
+                                })
+                        }}
+                    />
+                </View>
             </View>
             <ThemedTextInput
                 multiline
+                containerStyle={{
+                    marginHorizontal: 16,
+                }}
+                style={{
+                    backgroundColor: color.neutral._100,
+                    paddingVertical: 12,
+                    paddingHorizontal: 12,
+                    borderRadius: 8,
+                }}
                 numberOfLines={10}
-                label="Description"
+                label={t('common.labels.description')}
                 value={currentCard?.description ?? ''}
                 onChangeText={(text) => {
                     if (currentCard)
-                        setCurrentCard({
+                        updateCard({
                             ...currentCard,
                             description: text,
                         })
                 }}
                 placeholder="Describe this user..."
             />
-            <View style={{ flex: 1, paddingBottom: spacing.m }} />
-            <Text
-                style={{
-                    color: color.text._400,
-                    marginTop: spacing.xl2,
-                    alignSelf: 'center',
-                }}>
-                Hint: Swipe Left or press <AntDesign name="menu-unfold" size={16} /> to open the
-                Users drawer
-            </Text>
-            <ThemedButton label="Save" onPress={saveCard} iconName="save" />
         </View>
     )
 }
@@ -161,14 +210,20 @@ const useStyles = () => {
     return StyleSheet.create({
         userContainer: {
             flex: 1,
-            paddingVertical: spacing.xl,
-            paddingHorizontal: spacing.xl,
-            rowGap: 16,
+            paddingHorizontal: spacing.m,
+            paddingTop: spacing.m,
+            paddingBottom: spacing.s,
+            rowGap: 12,
         },
 
         nameBar: {
+            alignContent: 'flex-start',
+            borderRadius: borderRadius.xl,
             flexDirection: 'row',
-            columnGap: 24,
+            alignItems: 'center',
+            backgroundColor: color.neutral._100,
+            paddingVertical: 12,
+            paddingHorizontal: 12,
         },
 
         userImage: {

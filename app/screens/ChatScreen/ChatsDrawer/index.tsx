@@ -1,7 +1,7 @@
 import { FlashList } from '@shopify/flash-list'
-import { useLiveQuery } from 'drizzle-orm/expo-sqlite'
 import { authenticateAsync } from 'expo-local-authentication'
 import { useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { StyleSheet, Text, View } from 'react-native'
 import { useMMKVBoolean } from 'react-native-mmkv'
 import Animated, { FadeIn, FadeOut } from 'react-native-reanimated'
@@ -13,6 +13,7 @@ import Drawer from '@components/views/Drawer'
 import { YAxisOnlyTransition } from '@lib/animations/transitions'
 import { AppSettings } from '@lib/constants/GlobalValues'
 import { useDebounce } from '@lib/hooks/Debounce'
+import { useLiveQueryJoined } from '@lib/hooks/LiveQueryJoined'
 import { Characters } from '@lib/state/Characters'
 import { Chats } from '@lib/state/Chat'
 import { useChatsDrawerStore } from '@lib/state/components/ChatsDrawer'
@@ -24,8 +25,17 @@ import ChatDrawerSearchItem from './ChatDrawerSearchItem'
 
 const ChatsDrawer = () => {
     const styles = useStyles()
+    const { t } = useTranslation()
     const { color } = Theme.useTheme()
-    const { charId } = Characters.useCharacterStore(useShallow((state) => ({ charId: state.id })))
+    const { show, setShow } = Drawer.useDrawerStore(
+        useShallow((state) => ({
+            show: state.values[Drawer.ID.CHATLIST],
+            setShow: state.setShow,
+        }))
+    )
+    const { charId } = Characters.useCharacterStore(
+        useShallow((state) => ({ charId: state.id ?? -1 }))
+    )
     const { revealHidden, setRevealHidden } = useChatsDrawerStore(
         useShallow((state) => ({
             revealHidden: state.revealHidden,
@@ -33,16 +43,17 @@ const ChatsDrawer = () => {
         }))
     )
     const [lockApp] = useMMKVBoolean(AppSettings.LocallyAuthenticateUser)
-    const { data } = useLiveQuery(Chats.db.query.chatListQuery(charId ?? 0, revealHidden), [
-        charId,
+    const targetChar = show ? charId : -1
+    const { data } = useLiveQueryJoined(Chats.db.query.chatListQuery(targetChar, revealHidden), [
+        targetChar,
         revealHidden,
     ])
-    const setShow = Drawer.useDrawerStore((state) => state.setShow)
+
     const setShowDrawer = (b: boolean) => {
         setShow(Drawer.ID.CHATLIST, b)
     }
 
-    const { loadChat } = Chats.useChat()
+    const { setId } = Chats.useChat()
 
     const [searchResults, setSearchResults] = useState<
         Awaited<ReturnType<typeof Chats.db.query.searchChat>>
@@ -52,18 +63,15 @@ const ChatsDrawer = () => {
     const [showSearchResults, setShowSearchResults] = useState(false)
     const [searchQuery, setSearchQuery] = useState('')
 
-    const handleLoadChat = async (
-        chatId: number,
-        setOffset?: { type: 'index' | 'entryId'; value: number }
-    ) => {
-        await loadChat(chatId, setOffset)
+    const handleLoadChat = async (chatId: number) => {
+        await setId(chatId)
         setShowDrawer(false)
     }
 
     const search = useDebounce(async (query: string, charId?: number) => {
         if (!charId || !query) return
         const results = await Chats.db.query.searchChat(query, charId).catch((e) => {
-            Logger.error('Failed to run query: ' + e)
+            Logger.error(t('chat.drawer.search.errors.queryFailed', { error: String(e) }))
             return []
         })
         setSearchResults(results.sort((a, b) => b.sendDate.getTime() - a.sendDate.getTime()))
@@ -76,11 +84,10 @@ const ChatsDrawer = () => {
     }
 
     const handleCreateChat = async (ghost: boolean = false) => {
-        if (charId)
+        if (charId > 0)
             Chats.db.mutate.createChat(charId, { ghost }).then((chatId) => {
                 if (chatId) handleLoadChat(chatId)
-                if (chatId && ghost)
-                    Logger.infoToast('Ghost chat started. It is erased when you leave it.')
+                if (chatId && ghost) Logger.infoToast(t('chat.ghost.started'))
             })
     }
 
@@ -92,10 +99,10 @@ const ChatsDrawer = () => {
         // when the app is locked, revealing hidden chats requires the same authentication
         if (lockApp) {
             const result = await authenticateAsync({
-                promptMessage: 'Reveal Hidden Chats',
+                promptMessage: t('chat.drawer.hide.revealPrompt'),
             })
             if (!result.success) {
-                Logger.warnToast('Authentication Failed')
+                Logger.warnToast(t('chat.drawer.hide.authFailed'))
                 return
             }
         }
@@ -106,7 +113,9 @@ const ChatsDrawer = () => {
         <Drawer.Body drawerID={Drawer.ID.CHATLIST} drawerStyle={styles.drawer} direction="right">
             <View
                 style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 }}>
-                <Text style={styles.drawerTitle}>{showSearchBar ? 'Search' : 'Chats'}</Text>
+                <Text style={styles.drawerTitle}>
+                    {showSearchBar ? t('chat.drawer.search.title') : t('chat.drawer.title')}
+                </Text>
                 <View style={{ flexDirection: 'row', columnGap: 4 }}>
                     {!showSearchBar && (
                         <ThemedButton
@@ -131,7 +140,7 @@ const ChatsDrawer = () => {
             <Animated.View key={showSearchBar + ''} entering={FadeIn} exiting={FadeOut}>
                 {showSearchBar && (
                     <ThemedTextInput
-                        placeholder="Search for message..."
+                        placeholder={t('chat.drawer.search.placeholder')}
                         containerStyle={{ flex: 0, marginTop: 12, marginBottom: 12 }}
                         value={searchQuery}
                         autoCorrect={false}
@@ -163,14 +172,14 @@ const ChatsDrawer = () => {
                         style={{ flexDirection: 'row', columnGap: 8 }}>
                         <ThemedButton
                             buttonStyle={{ flex: 1 }}
-                            label="Start New Chat"
+                            label={t('chat.drawer.actions.startNewChat')}
                             onPress={() => handleCreateChat(false)}
                         />
                         <ThemedButton
                             variant="secondary"
                             iconName="eye-invisible"
                             iconSize={20}
-                            label="Ghost"
+                            label={t('chat.drawer.actions.ghost')}
                             onPress={() => handleCreateChat(true)}
                         />
                     </Animated.View>
@@ -179,7 +188,9 @@ const ChatsDrawer = () => {
             {showSearchResults && (
                 <Animated.View entering={FadeIn.duration(200)} style={styles.listContainer}>
                     {searchResults.length > 0 && (
-                        <Text style={styles.resultCount}>Results: {searchResults.length}</Text>
+                        <Text style={styles.resultCount}>
+                            {t('chat.drawer.search.resultsFound', { count: searchResults.length })}
+                        </Text>
                     )}
                     <FlashList
                         data={searchResults}
@@ -195,7 +206,9 @@ const ChatsDrawer = () => {
                         removeClippedSubviews={false}
                         ListEmptyComponent={() => (
                             <View style={styles.emptyContainer}>
-                                <Text style={styles.emptyText}>No Results</Text>
+                                <Text style={styles.emptyText}>
+                                    {t('chat.drawer.search.noResults')}
+                                </Text>
                             </View>
                         )}
                     />

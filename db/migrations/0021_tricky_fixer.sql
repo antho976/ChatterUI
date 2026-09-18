@@ -1,1 +1,0 @@
-ALTER TABLE `instructs` ADD `note_in_user_message` integer DEFAULT false NOT NULL;

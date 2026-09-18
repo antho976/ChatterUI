@@ -2,12 +2,15 @@ import { copyFileSAF, getContentFd, persistContentPermission } from '@vali98/rea
 import { loadLlamaModelInfo } from 'cui-llama.rn'
 import { eq, inArray, notInArray } from 'drizzle-orm'
 import { getDocumentAsync } from 'expo-document-picker'
+import { t } from 'i18next'
 import { Platform } from 'react-native'
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 
-import { db } from '@db'
+import { db } from '@db/db'
+import { model_data, model_mmproj_links, ModelDataType } from '@db/schema'
 import { Storage } from '@lib/enums/Storage'
+import { CharacterLink } from '@lib/state/CharacterLinks'
 import { Logger } from '@lib/state/Logger'
 import { createMMKVStorage } from '@lib/storage/MMKV'
 import {
@@ -18,8 +21,8 @@ import {
     fileInfo,
     listFiles,
     readableFileSize,
+    readFileMagic,
 } from '@lib/utils/File'
-import { model_data, model_mmproj_links, ModelDataType } from 'db/schema'
 
 import { GGMLNameMap, GGMLType } from './GGML'
 
@@ -45,8 +48,9 @@ export namespace Model {
         if (!modelInfo) return
         // some models may be external
         if (modelInfo.file_path.startsWith(AppDirectory.ModelPath))
-            await deleteModel(modelInfo.file)
+            await deleteModelFile(modelInfo.file)
         await db.delete(model_data).where(eq(model_data.id, id))
+        await CharacterLink.db.mutate.deleteByValue('model_id', id)
     }
 
     export const isMMPROJ = (arch: string) => {
@@ -61,9 +65,8 @@ export namespace Model {
             const file = result.assets[0]
             const name = file.name
             const newdir = `${AppDirectory.ModelPath}${name}`
-            Logger.infoToast('Importing file...')
+            Logger.infoToast(t('common.messages.importingFile'))
             let success = false
-            console.log(file.uri, '\n', newdir)
 
             if (file.uri.startsWith('content://') && Platform.OS === 'android') {
                 await copyFileSAF(file.uri, newdir.replace('file://', ''))
@@ -71,8 +74,8 @@ export namespace Model {
                         success = true
                     })
                     .catch((e) => {
-                        Logger.warnToast('Failed to copy')
-                        Logger.warn(JSON.stringify(e))
+                        Logger.warnToast(t('common.errors.failedToCopy'))
+                        Logger.warn(e)
                         success = false
                     })
             } else {
@@ -85,7 +88,8 @@ export namespace Model {
             if (!success) return
 
             // database routine here
-            if (await createModelData(name, true)) Logger.infoToast(`Model Imported Sucessfully!`)
+            if (await createModelData(name, true))
+                Logger.infoToast(t('model.toast.modelImportedSuccessfully'))
         })
     }
 
@@ -95,15 +99,15 @@ export namespace Model {
         }).then(async (result) => {
             if (result.canceled) return
             const file = result.assets[0]
-            Logger.infoToast('Importing file...')
+            Logger.infoToast(t('common.messages.importingFile'))
             if (!file) {
-                Logger.errorToast('File Invalid')
+                Logger.errorToast(t('common.errors.fileInvalid'))
                 return
             }
 
             if (await createModelDataExternal(file.uri, file.name)) {
                 persistContentPermission(file.uri)
-                Logger.infoToast(`Model Imported Sucessfully!`)
+                Logger.infoToast(t('model.toast.modelImportedSuccessfully'))
             }
         })
     }
@@ -121,7 +125,7 @@ export namespace Model {
             // cull not required on iOS
             modelList.forEach(async (item) => {
                 if (item.name === '' || !getModelExists(item.file_path)) {
-                    Logger.warnToast(`Model Missing, its entry will be deleted: ${item.name}`)
+                    Logger.warnToast(t('model.toast.modelMissingEntryDeleted', { name: item.name }))
                     await db.delete(model_data).where(eq(model_data.id, item.id))
                 }
             })
@@ -151,7 +155,7 @@ export namespace Model {
         deleteOnFailure: boolean = false
     ) => {
         if (!filename) {
-            Logger.errorToast('Filename invalid, Import Failed')
+            Logger.errorToast(t('common.errors.filenameInvalidImportFailed'))
             return
         }
         return setModelDataInternal(filename, newdir, deleteOnFailure)
@@ -244,6 +248,11 @@ export namespace Model {
             // This will load GGUF KV-pairs
             // refer to https://github.com/ggml-org/ggml/blob/master/docs/gguf.md#standardized-key-value-pairs
             let loadable_path = file_path
+
+            const magicInfo = readFileMagic(loadable_path)
+
+            Logger.info(t('model.magic', magicInfo))
+
             if (loadable_path.includes('content://'))
                 loadable_path = (await getContentFd(loadable_path)) ?? loadable_path
 
@@ -268,7 +277,7 @@ export namespace Model {
             await db.update(model_data).set(modelDataEntry).where(eq(model_data.id, id))
             return true
         } catch (e) {
-            Logger.errorToast(`Failed to create data: ${e}`)
+            Logger.errorToast(t('common.errors.failedToCreateData'), e)
             if (deleteOnFailure) deleteFile(file_path)
             return false
         }
@@ -284,7 +293,7 @@ export namespace Model {
         return (await getModelList()).includes(modelName)
     }
 
-    const deleteModel = async (name: string) => {
+    const deleteModelFile = async (name: string) => {
         if (!(await modelExists(name))) return
         return deleteFile(`${AppDirectory.ModelPath}${name}`)
     }

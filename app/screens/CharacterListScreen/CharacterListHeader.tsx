@@ -2,6 +2,7 @@ import { count, eq, notInArray } from 'drizzle-orm'
 import { useLiveQuery } from 'drizzle-orm/expo-sqlite'
 import { useFocusEffect } from 'expo-router'
 import { useCallback } from 'react'
+import { useTranslation } from 'react-i18next'
 import { BackHandler, Text, View } from 'react-native'
 import { useMMKVBoolean } from 'react-native-mmkv'
 import Animated, { FadeIn, FadeOut, LinearTransition } from 'react-native-reanimated'
@@ -10,13 +11,13 @@ import { useShallow } from 'zustand/react/shallow'
 import ThemedButton from '@components/buttons/ThemedButton'
 import StringArrayEditor from '@components/input/StringArrayEditor'
 import ThemedTextInput from '@components/input/ThemedTextInput'
-import { db } from '@db'
+import { db } from '@db/db'
+import { characterTags, tags } from '@db/schema'
 import { AppSettings } from '@lib/constants/GlobalValues'
 import { CharacterSorter } from '@lib/state/CharacterSorter'
 import { Logger } from '@lib/state/Logger'
 import { TagHider } from '@lib/state/TagHider'
 import { Theme } from '@lib/theme/ThemeManager'
-import { characterTags, tags } from 'db/schema'
 
 import SortButton from './SortButton'
 
@@ -25,6 +26,7 @@ type CharacterListHeaderProps = {
 }
 
 const CharacterListHeader: React.FC<CharacterListHeaderProps> = ({ resultLength }) => {
+    const { t } = useTranslation()
     const [useTagHider, setUseTagHider] = useMMKVBoolean(AppSettings.UseTagHider)
     const { showSearch, setShowSearch, textFilter, setTextFilter, tagFilter, setTagFilter } =
         CharacterSorter.useSorterStore(
@@ -90,10 +92,10 @@ const CharacterListHeader: React.FC<CharacterListHeaderProps> = ({ resultLength 
                             color: color.text._400,
                             fontSize: 16,
                         }}>
-                        Sort By
+                        {t('character.list.sort.label')}
                     </Text>
-                    <SortButton type="modified" label="Recent" />
-                    <SortButton type="name" label="Name" />
+                    <SortButton type="modified" label={t('character.list.sort.recent')} />
+                    <SortButton type="name" label={t('character.list.columns.name')} />
                 </View>
                 <View
                     style={{
@@ -123,7 +125,13 @@ const CharacterListHeader: React.FC<CharacterListHeaderProps> = ({ resultLength 
                         delayLongPress={5000}
                         onLongPress={() => {
                             setUseTagHider(!useTagHider)
-                            Logger.infoToast('Hider ' + (!useTagHider ? 'Enabled' : 'Disabled'))
+                            Logger.infoToast(
+                                t(
+                                    !useTagHider
+                                        ? 'character.list.messages.hiderEnabled'
+                                        : 'character.list.messages.hiderDisabled'
+                                )
+                            )
                         }}
                     />
                 </View>
@@ -141,7 +149,7 @@ const CharacterListHeader: React.FC<CharacterListHeaderProps> = ({ resultLength 
                                 suggestions={data
                                     .sort((a, b) => b.tagCount - a.tagCount)
                                     .map((item) => item.tag)}
-                                label="Search By Tags"
+                                label={t('character.list.search.byTags')}
                                 value={tagFilter}
                                 setValue={setTagFilter}
                                 placeholder="Filter Tags..."
@@ -150,7 +158,7 @@ const CharacterListHeader: React.FC<CharacterListHeaderProps> = ({ resultLength 
                             />
                         )}
                         <ThemedTextInput
-                            label="Search By Name"
+                            label={t('character.list.search.byName')}
                             containerStyle={{ flex: 0 }}
                             value={textFilter}
                             onChangeText={setTextFilter}
@@ -165,7 +173,7 @@ const CharacterListHeader: React.FC<CharacterListHeaderProps> = ({ resultLength 
                                     marginTop: 8,
                                     color: color.text._400,
                                 }}>
-                                Results: {resultLength}
+                                {t('common.labels.results')}: {resultLength}
                             </Text>
                         )}
                     </Animated.View>

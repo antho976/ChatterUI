@@ -5,7 +5,7 @@ module.exports = {
         name: IS_DEV ? 'ChatterUI (DEV)' : 'ChatterUI',
         newArchEnabled: true,
         slug: 'ChatterUI',
-        version: '0.9.0',
+        version: '0.10.0-beta5',
         orientation: 'default',
         icon: './assets/images/icon.png',
         scheme: 'chatterui',
@@ -28,7 +28,6 @@ module.exports = {
                 monochromeImage: './assets/images/adaptive-icon-foreground.png',
                 backgroundColor: '#000',
             },
-            edgeToEdgeEnabled: true,
             package: IS_DEV ? 'com.Vali98.ChatterUIDev' : 'com.Vali98.ChatterUI',
             userInterfaceStyle: 'dark',
             permissions: [
@@ -90,6 +89,20 @@ module.exports = {
                 },
             ],
             ['expo-sqlite', { withSQLiteVecExtension: true }],
+            [
+                'expo-image-picker',
+                {
+                    photosPermission: 'ChatterUI requires image permissions for vision models',
+                    colors: {
+                        cropToolbarColor: '#000000',
+                    },
+                    dark: {
+                        colors: {
+                            cropToolbarColor: '#000000',
+                        },
+                    },
+                },
+            ],
             'expo-localization',
             'expo-router',
             'expo-font',
@@ -98,6 +111,13 @@ module.exports = {
             './expo-build-plugins/usercert.plugin.js',
             './expo-build-plugins/rnllama.plugin.js',
             './expo-build-plugins/copyhtp.plugin.js',
+            /**
+             * Future icon usage will need to be added here
+             * https://github.com/oblador/react-native-vector-icons/blob/master/docs/SETUP-EXPO.md
+             */
+            '@react-native-vector-icons/ant-design',
+            '@react-native-vector-icons/octicons',
+            '@react-native-vector-icons/material-icons',
         ],
         experiments: {
             typedRoutes: true,

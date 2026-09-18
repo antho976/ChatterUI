@@ -1,10 +1,11 @@
+/* eslint-disable i18next/no-literal-string */
 import { initLlama, LlamaContext } from 'cui-llama.rn'
 import { Paths } from 'expo-file-system'
 import { useState } from 'react'
 import { Text, TextInput, TouchableOpacity, View } from 'react-native'
 import { create } from 'zustand'
 
-import { sqliteDB } from '@db'
+import { sqliteDB } from '@db/db'
 import { LlamaConfig } from '@lib/engine/Local/LlamaLocal'
 import { Theme } from '@lib/theme/ThemeManager'
 

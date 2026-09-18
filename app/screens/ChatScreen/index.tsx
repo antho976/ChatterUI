@@ -1,4 +1,5 @@
 import { useEffect } from 'react'
+import { useTranslation } from 'react-i18next'
 import { View } from 'react-native'
 import { useReanimatedKeyboardAnimation } from 'react-native-keyboard-controller'
 import Animated, { useAnimatedStyle } from 'react-native-reanimated'
@@ -15,14 +16,17 @@ import { Characters } from '@lib/state/Characters'
 import { Chats } from '@lib/state/Chat'
 import { Logger } from '@lib/state/Logger'
 import { ChatImportSchema } from '@lib/utils/ChatSchema'
-import { pickStringDocument } from '@lib/utils/File'
+import { FileUtils } from '@lib/utils/File'
 import ChatInput from '@screens/ChatScreen/ChatInput'
 import ChatsDrawer from '@screens/ChatScreen/ChatsDrawer'
 import ChatWindow from '@screens/ChatScreen/ChatWindow'
 
+import AuthorNoteSheet from './AuthorNote'
+import AuthorNoteEditor from './AuthorNote/AuthorNoteEditor'
 import ChatEditor from './ChatWindow/ChatEditor'
 
 const ChatScreen = () => {
+    const { t } = useTranslation()
     const insets = useSafeAreaInsets()
     const { unloadCharacter, charId } = Characters.useCharacterStore(
         useShallow((state) => ({
@@ -40,7 +44,7 @@ const ChatScreen = () => {
         }
     })
 
-    const { chat, unloadChat, loadChat } = Chats.useChat()
+    const { chatId, setId, resetId, scrollData } = Chats.useChat()
 
     const { showSettings, showChats } = Drawer.useDrawerStore(
         useShallow((state) => ({
@@ -52,28 +56,27 @@ const ChatScreen = () => {
     useEffect(() => {
         return () => {
             unloadCharacter()
-            unloadChat()
+            resetId()
         }
-    }, [unloadCharacter, unloadChat])
+    }, [unloadCharacter, resetId])
 
     const handleCreateChat = async () => {
         if (charId)
             Chats.db.mutate.createChat(charId).then((chatId) => {
-                if (chatId) loadChat(chatId)
+                if (chatId) setId(chatId)
             })
     }
 
     const handleImportChat = async () => {
         if (!charId || !userId) {
-            Logger.errorToast('You are somehow importing a chat without a character or user')
+            Logger.errorToast(t('chat.import.errors.noChatCharacter'))
             return
         }
-        const file = await pickStringDocument({ type: 'application/json' })
+        const file = await FileUtils.pickText({ type: 'application/json' })
         if (!file.success) return
         const result = ChatImportSchema.safeParse(JSON.parse(file.data))
         if (!result.success) {
-            Logger.errorToast('Failed to Import')
-            Logger.error('Incorrect format')
+            Logger.errorToast(t('chat.import.errors.failedToImport'))
             return
         }
         const chat = result.data
@@ -101,7 +104,6 @@ const ChatScreen = () => {
                 chat.user_id = null
             }
         }
-
         chat.last_modified = Date.now()
         Chats.db.mutate.cloneChat(chat)
     }
@@ -163,10 +165,14 @@ const ChatScreen = () => {
                         headerRight={renderHeaderButtonRight}
                     />
                     <View style={{ flex: 1 }}>
-                        {chat && <ChatWindow />}
+                        {typeof chatId === 'number' && (
+                            <ChatWindow chatId={chatId} scrollData={scrollData} />
+                        )}
                         <ChatInput />
                         <AvatarViewer />
                         <ChatEditor />
+                        <AuthorNoteSheet />
+                        <AuthorNoteEditor />
                     </View>
                 </Animated.View>
 

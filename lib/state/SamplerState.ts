@@ -1,4 +1,5 @@
 import { getDocumentAsync } from 'expo-document-picker'
+import { t } from 'i18next'
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import { useShallow } from 'zustand/react/shallow'
@@ -14,6 +15,8 @@ import { Storage } from '@lib/enums/Storage'
 import { Logger } from '@lib/state/Logger'
 import { createMMKVStorage } from '@lib/storage/MMKV'
 import { readStringAsync } from '@lib/utils/File'
+
+import { CharacterLink } from './CharacterLinks'
 
 export type SamplerConfig = {
     name: string
@@ -40,7 +43,7 @@ export namespace SamplersManager {
                 addSamplerConfig: (config) => {
                     const configs = get().configList
                     if (configs.some((item) => item.name === config.name)) {
-                        Logger.errorToast(`Sampler Config "${config.name}" already exists!`)
+                        Logger.errorToast(t('sampler.toast.exists', { name: config.name }))
                         return
                     }
                     config.data = fixSamplerConfig(config.data)
@@ -50,6 +53,7 @@ export namespace SamplersManager {
                     }))
                 },
                 deleteSamplerConfig: (index) => {
+                    CharacterLink.db.mutate.deleteByValue('sampler_index', index)
                     set((state) => ({
                         configList: state.configList.filter((item, i) => i !== index),
                         currentConfigIndex:
@@ -157,7 +161,7 @@ export namespace SamplersManager {
                 (!result.assets[0].name.endsWith('json') &&
                     !result.assets[0].name.endsWith('settings'))
             ) {
-                Logger.errorToast(`Invalid File Type!`)
+                Logger.errorToast(t('common.errors.invalidFileType'))
                 return
             }
             const {
@@ -168,7 +172,7 @@ export namespace SamplersManager {
 
             return { data: JSON.parse(data), name: name }
         } catch (e) {
-            Logger.errorToast(`Failed to import: ${e}`)
+            Logger.errorToast(t('sampler.toast.failedToImport'), e)
         }
     }
 }

@@ -6,12 +6,13 @@ import {
     LlamaContext,
     RNLLAMA_MTMD_DEFAULT_MEDIA_MARKER,
 } from 'cui-llama.rn'
+import { t } from 'i18next'
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 
+import { ModelDataType } from '@db/schema'
 import { Storage } from '@lib/enums/Storage'
 import { AppDirectory, fileExists, readableFileSize, writeBase64File } from '@lib/utils/File'
-import { ModelDataType } from 'db/schema'
 
 import { checkGGMLDeprecated } from './GGML'
 import { KV, Model } from './Model'
@@ -131,6 +132,7 @@ export namespace Llama {
                         persistedState.config.devices = []
                         Logger.info('Migrated to v3 EngineData')
                     }
+                    return persistedState
                 },
             }
         )
@@ -145,15 +147,15 @@ export namespace Llama {
             const config = useLlamaPreferencesStore.getState().config
 
             if (get()?.model?.id === model.id) {
-                return Logger.errorToast('Model Already Loaded!')
+                return Logger.errorToast(t('model.toast.modelAlreadyLoaded'))
             }
 
             if (checkGGMLDeprecated(parseInt(model.quantization))) {
-                return Logger.errorToast('Quantization No Longer Supported!')
+                return Logger.errorToast(t('model.toast.quantizationNoLongerSupported'))
             }
 
             if (!(await Model.getModelExists(model.file_path))) {
-                Logger.errorToast('Model Does Not Exist!')
+                Logger.errorToast(t('model.toast.modelDoesNotExist'))
                 Model.verifyModelList()
                 return
             }
@@ -188,7 +190,7 @@ export namespace Llama {
             }
 
             const llamaContext = await initLlama(params, progressCallback).catch((error) => {
-                Logger.errorToast(`Could Not Load Model: ${error} `)
+                Logger.errorToast(t('model.toast.couldNotLoadModel'), JSON.stringify(error))
                 if (model.file_path.includes('content://')) {
                     closeFd(model_path)
                 }
@@ -221,7 +223,7 @@ export namespace Llama {
                     closeFd(model_path)
                 }
 
-                Logger.errorToast('Failed to load MMPROJ: ' + e)
+                Logger.errorToast(t('model.toast.failedToLoadMMPROJ'), e)
             })
             if (await context.isMultimodalEnabled()) {
                 const capabilities = await context.getMultimodalSupport()
@@ -257,7 +259,7 @@ export namespace Llama {
             await get()
                 .context?.releaseMultimodal()
                 .catch((e) => {
-                    Logger.errorToast('Failed to unload MMPROJ: ' + e)
+                    Logger.errorToast(t('model.toast.failedToUnloadMMPROJ'), e)
                 })
             set({
                 mmproj: undefined,
@@ -270,7 +272,7 @@ export namespace Llama {
         ) => {
             const llamaContext = get().context
             if (llamaContext === undefined) {
-                Logger.errorToast('No Model Loaded')
+                Logger.errorToast(t('model.toast.noModelLoaded'))
                 return
             }
 
@@ -295,7 +297,7 @@ export namespace Llama {
         saveKV: async (prompt, media_paths) => {
             const llamaContext = get().context
             if (!llamaContext) {
-                Logger.errorToast('No Model Loaded')
+                Logger.errorToast(t('model.toast.noModelLoaded'))
                 return
             }
 
@@ -322,7 +324,7 @@ export namespace Llama {
             let result = false
             const llamaContext = get().context
             if (!llamaContext) {
-                Logger.errorToast('No Model Loaded')
+                Logger.errorToast(t('model.toast.noModelLoaded'))
                 return false
             }
             if (!fileExists(sessionFile)) {
@@ -343,7 +345,7 @@ export namespace Llama {
         tokenLength: async (text: string, mediaPaths: string[] = []) => {
             const finalPaths = get().mmproj ? mediaPaths : []
             if (!get().mmproj && mediaPaths.length > 0) {
-                Logger.warnToast('Media was added without MMPROJ model')
+                Logger.warnToast(t('model.toast.mediaAddedWithoutMMPROJModel'))
             }
             const result = await get().context?.tokenize(
                 text + finalPaths.map(() => RNLLAMA_MTMD_DEFAULT_MEDIA_MARKER).join(),

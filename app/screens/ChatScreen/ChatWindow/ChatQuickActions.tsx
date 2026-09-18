@@ -1,5 +1,6 @@
 import { setStringAsync } from 'expo-clipboard'
 import React, { useCallback } from 'react'
+import { useTranslation } from 'react-i18next'
 import { View } from 'react-native'
 import { useMMKVBoolean } from 'react-native-mmkv'
 import Animated, { StretchInY, StretchOutY, ZoomIn, ZoomOut } from 'react-native-reanimated'
@@ -8,18 +9,22 @@ import { useShallow } from 'zustand/react/shallow'
 
 import ThemedButton from '@components/buttons/ThemedButton'
 import Alert from '@components/views/Alert'
+import { ChatSwipe } from '@db/schema'
 import { AppSettings } from '@lib/constants/GlobalValues'
 import { useBackAction } from '@lib/hooks/BackAction'
+import { AuthorNotes } from '@lib/state/AuthorNotes'
 import { Chats, useInference } from '@lib/state/Chat'
+import { authorNoteEditorState } from '@lib/state/components/AuthorNotes'
 import { Logger } from '@lib/state/Logger'
-import { useTTS } from '@lib/state/TTS'
+import { useTTSStore } from '@lib/state/TTS'
 import { Theme } from '@lib/theme/ThemeManager'
 
+import { useAuthorNoteState } from '../AuthorNote'
 import { useChatEditorStore } from './ChatEditor'
 import ChatTTS from './ChatTTS'
 
 interface OptionsStateProps {
-    activeIndex?: number
+    activeEntryId?: number
     setActiveIndex: (n: number | undefined) => void
 }
 
@@ -29,53 +34,91 @@ useInference.subscribe(({ nowGenerating }) => {
     }
 })
 export const useChatActionsState = create<OptionsStateProps>()((set, get) => ({
-    setActiveIndex: (n) => set({ activeIndex: get().activeIndex === n ? undefined : n }),
+    setActiveIndex: (n) => set({ activeEntryId: get().activeEntryId === n ? undefined : n }),
 }))
 
 interface ChatActionProps {
-    index: number
+    entryId: number
     nowGenerating: boolean
     isLastMessage: boolean
+    swipe: ChatSwipe
+    index: number
 }
 
-const ChatQuickActions: React.FC<ChatActionProps> = ({ index, nowGenerating, isLastMessage }) => {
-    const { activeIndex, setShowOptions } = useChatActionsState(
+const ChatQuickActions: React.FC<ChatActionProps> = ({
+    entryId,
+    nowGenerating,
+    isLastMessage,
+    swipe,
+    index,
+}) => {
+    const { activeEntryId, setShowOptions } = useChatActionsState(
         useShallow((state) => ({
             setShowOptions: state.setActiveIndex,
-            activeIndex: state.activeIndex,
+            activeEntryId: state.activeEntryId,
         }))
     )
+
     const showEditor = useChatEditorStore((state) => state.show)
+    const showNoteEditor = authorNoteEditorState(useShallow((state) => state.open))
+    const ref = useAuthorNoteState(useShallow((state) => state.ref))
+    const { t } = useTranslation()
     const { color } = Theme.useTheme()
     const [quickDelete] = useMMKVBoolean(AppSettings.QuickDelete)
-    const { deleteEntry } = Chats.useEntry()
-    const { chatId, loadChat } = Chats.useChat()
-    const { swipe } = Chats.useSwipeData(index)
-    const { activeChatIndex } = useTTS()
-    const showOptions = activeIndex === index
+    const { chatId, setId } = Chats.useChat()
+
+    const { activeSwipeId } = useTTSStore()
+    const showOptions = activeEntryId === entryId
 
     const handleEnableEdit = () => {
         if (showOptions) setShowOptions(undefined)
-        if (!nowGenerating) showEditor(index)
+        if (!nowGenerating) showEditor(entryId)
     }
 
     const handleFork = () => {
         if (!chatId) return
         Alert.alert({
-            title: 'Fork Chat',
-            description: 'This will create a clone of this chat from this message',
+            title: t('chat.quickActions.fork.title'),
+            description: t('chat.quickActions.fork.description'),
             buttons: [
-                { label: 'Cancel' },
+                { label: t('common.actions.cancel') },
                 {
-                    label: 'Fork Chat',
+                    label: t('chat.quickActions.fork.button'),
                     onPress: async () => {
                         const newChatId = await Chats.db.mutate.cloneChatFromId(chatId, index + 1)
                         if (!newChatId) {
-                            Logger.errorToast('Failed to clone chat')
+                            Logger.errorToast(t('chat.quickActions.errors.cloneFailed'))
                             return
                         }
                         setShowOptions(undefined)
-                        loadChat(newChatId)
+                        setId(newChatId)
+                    },
+                },
+            ],
+        })
+    }
+
+    const handleCreateAuthorNote = () => {
+        if (!chatId) return
+        Alert.alert({
+            title: t('chat.quickActions.createNote.title'),
+            description: t('chat.quickActions.createNote.description'),
+            buttons: [
+                { label: t('common.actions.cancel') },
+                {
+                    label: t('chat.quickActions.createNote.button'),
+                    onPress: async () => {
+                        const newNoteId = await AuthorNotes.db.mutate.createNote({
+                            chat_id: chatId,
+                            content: swipe.swipe,
+                            depth: 1,
+                        })
+                        if (!newNoteId) {
+                            Logger.errorToast(t('chat.quickActions.errors.noteCreateFailed'))
+                            return
+                        }
+                        ref?.current?.open()
+                        showNoteEditor(newNoteId)
                     },
                 },
             ],
@@ -92,7 +135,7 @@ const ChatQuickActions: React.FC<ChatActionProps> = ({ index, nowGenerating, isL
 
     if (!swipe) return
 
-    const isSpeaking = index === activeChatIndex
+    const isSpeaking = swipe.id === activeSwipeId
     if (!isSpeaking && (!showOptions || nowGenerating)) return
 
     return (
@@ -144,7 +187,7 @@ const ChatQuickActions: React.FC<ChatActionProps> = ({ index, nowGenerating, isL
                                     }}
                                     onPress={() => {
                                         if (showOptions) setShowOptions(undefined)
-                                        deleteEntry(index)
+                                        Chats.db.mutate.deleteChatEntry(entryId)
                                     }}
                                 />
                                 <View
@@ -157,7 +200,19 @@ const ChatQuickActions: React.FC<ChatActionProps> = ({ index, nowGenerating, isL
                                 />
                             </Animated.View>
                         )}
-
+                        <Animated.View
+                            entering={ZoomIn.duration(200)}
+                            exiting={ZoomOut.duration(200)}>
+                            <ThemedButton
+                                variant="tertiary"
+                                iconName="font-colors"
+                                iconSize={22}
+                                iconStyle={{
+                                    color: color.text._500,
+                                }}
+                                onPress={handleCreateAuthorNote}
+                            />
+                        </Animated.View>
                         <Animated.View
                             entering={ZoomIn.duration(200)}
                             exiting={ZoomOut.duration(200)}>
@@ -186,10 +241,12 @@ const ChatQuickActions: React.FC<ChatActionProps> = ({ index, nowGenerating, isL
                                     if (showOptions) setShowOptions(undefined)
                                     setStringAsync(swipe.swipe)
                                         .then(() => {
-                                            Logger.infoToast('Copied')
+                                            Logger.infoToast(t('chat.quickActions.messages.copied'))
                                         })
                                         .catch(() => {
-                                            Logger.errorToast('Failed to copy to clipboard')
+                                            Logger.errorToast(
+                                                t('chat.quickActions.errors.copyFailed')
+                                            )
                                         })
                                 }}
                             />
@@ -210,7 +267,7 @@ const ChatQuickActions: React.FC<ChatActionProps> = ({ index, nowGenerating, isL
                         </Animated.View>
                     </>
                 )}
-                <ChatTTS index={index} />
+                <ChatTTS swipe={swipe} />
             </Animated.View>
         </View>
     )

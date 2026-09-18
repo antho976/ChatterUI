@@ -1,9 +1,160 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "eff15ad5-b13e-47b4-962b-971514ca6366",
-  "prevId": "98802e5d-6254-4cd1-acfc-c57cff2368cb",
+  "id": "5c35dffd-8d26-4b73-a233-0cf86769c56d",
+  "prevId": "06b573a5-a8f3-4e9a-a35f-363551bce13a",
   "tables": {
+    "author_notes": {
+      "name": "author_notes",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'New Note'"
+        },
+        "content": {
+          "name": "content",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "''"
+        },
+        "note": {
+          "name": "note",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "''"
+        },
+        "priority": {
+          "name": "priority",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false,
+          "default": 0
+        },
+        "depth": {
+          "name": "depth",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false,
+          "default": 0
+        },
+        "active": {
+          "name": "active",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": true
+        },
+        "token_length": {
+          "name": "token_length",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "chat_id": {
+          "name": "chat_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "character_id": {
+          "name": "character_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "author_notes_chat_active_idx": {
+          "name": "author_notes_chat_active_idx",
+          "columns": [
+            "chat_id",
+            "active"
+          ],
+          "isUnique": false
+        },
+        "author_notes_character_active_idx": {
+          "name": "author_notes_character_active_idx",
+          "columns": [
+            "character_id",
+            "active"
+          ],
+          "isUnique": false
+        },
+        "author_notes_global_idx": {
+          "name": "author_notes_global_idx",
+          "columns": [
+            "id"
+          ],
+          "isUnique": false,
+          "where": "\"author_notes\".\"chat_id\" IS NULL AND \"author_notes\".\"character_id\" IS NULL"
+        },
+        "author_notes_global_active_idx": {
+          "name": "author_notes_global_active_idx",
+          "columns": [
+            "active"
+          ],
+          "isUnique": false,
+          "where": "\"author_notes\".\"chat_id\" IS NULL AND \"author_notes\".\"character_id\" IS NULL AND \"author_notes\".\"active\" = 1"
+        }
+      },
+      "foreignKeys": {
+        "author_notes_chat_id_chats_id_fk": {
+          "name": "author_notes_chat_id_chats_id_fk",
+          "tableFrom": "author_notes",
+          "tableTo": "chats",
+          "columnsFrom": [
+            "chat_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "author_notes_character_id_characters_id_fk": {
+          "name": "author_notes_character_id_characters_id_fk",
+          "tableFrom": "author_notes",
+          "tableTo": "characters",
+          "columnsFrom": [
+            "character_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "notes_ownership_check": {
+          "name": "notes_ownership_check",
+          "value": "\"author_notes\".\"chat_id\" IS NULL OR \"author_notes\".\"character_id\" IS NULL"
+        }
+      }
+    },
     "character_greetings": {
       "name": "character_greetings",
       "columns": {
@@ -34,6 +185,67 @@
         "character_greetings_character_id_characters_id_fk": {
           "name": "character_greetings_character_id_characters_id_fk",
           "tableFrom": "character_greetings",
+          "tableTo": "characters",
+          "columnsFrom": [
+            "character_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "characterLinks": {
+      "name": "characterLinks",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "character_id": {
+          "name": "character_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "value": {
+          "name": "value",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "type": {
+          "name": "type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "character_links_character_id_type_unique": {
+          "name": "character_links_character_id_type_unique",
+          "columns": [
+            "character_id",
+            "type"
+          ],
+          "isUnique": true
+        }
+      },
+      "foreignKeys": {
+        "characterLinks_character_id_characters_id_fk": {
+          "name": "characterLinks_character_id_characters_id_fk",
+          "tableFrom": "characterLinks",
           "tableTo": "characters",
           "columnsFrom": [
             "character_id"
@@ -441,142 +653,6 @@
       "uniqueConstraints": {},
       "checkConstraints": {}
     },
-    "chat_preset_links": {
-      "name": "chat_preset_links",
-      "columns": {
-        "preset_id": {
-          "name": "preset_id",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "chat_id": {
-          "name": "chat_id",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {
-        "chat_preset_links_preset_id_chat_presets_id_fk": {
-          "name": "chat_preset_links_preset_id_chat_presets_id_fk",
-          "tableFrom": "chat_preset_links",
-          "tableTo": "chat_presets",
-          "columnsFrom": [
-            "preset_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "chat_preset_links_chat_id_chats_id_fk": {
-          "name": "chat_preset_links_chat_id_chats_id_fk",
-          "tableFrom": "chat_preset_links",
-          "tableTo": "chats",
-          "columnsFrom": [
-            "chat_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {
-        "chat_preset_links_preset_id_chat_id_pk": {
-          "columns": [
-            "preset_id",
-            "chat_id"
-          ],
-          "name": "chat_preset_links_preset_id_chat_id_pk"
-        }
-      },
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
-    "chat_presets": {
-      "name": "chat_presets",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "integer",
-          "primaryKey": true,
-          "notNull": true,
-          "autoincrement": true
-        },
-        "owner_chat_id": {
-          "name": "owner_chat_id",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "name": {
-          "name": "name",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "'New Preset'"
-        },
-        "system_prompt": {
-          "name": "system_prompt",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "''"
-        },
-        "persona": {
-          "name": "persona",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "''"
-        },
-        "rules": {
-          "name": "rules",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "''"
-        },
-        "create_date": {
-          "name": "create_date",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {
-        "chat_presets_owner_chat_id_chats_id_fk": {
-          "name": "chat_presets_owner_chat_id_chats_id_fk",
-          "tableFrom": "chat_presets",
-          "tableTo": "chats",
-          "columnsFrom": [
-            "owner_chat_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
     "chat_swipes": {
       "name": "chat_swipes",
       "columns": {
@@ -629,9 +705,40 @@
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
+        },
+        "active": {
+          "name": "active",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": false
+        },
+        "token_length": {
+          "name": "token_length",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "reset_length": {
+          "name": "reset_length",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
         }
       },
-      "indexes": {},
+      "indexes": {
+        "chat_swipes_entry_active_idx": {
+          "name": "chat_swipes_entry_active_idx",
+          "columns": [
+            "entry_id",
+            "active"
+          ],
+          "isUnique": false
+        }
+      },
       "foreignKeys": {
         "chat_swipes_entry_id_chat_entries_id_fk": {
           "name": "chat_swipes_entry_id_chat_entries_id_fk",
@@ -704,44 +811,6 @@
           "notNull": true,
           "autoincrement": false,
           "default": 0
-        },
-        "hidden": {
-          "name": "hidden",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": false
-        },
-        "ghost": {
-          "name": "ghost",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": false
-        },
-        "memory": {
-          "name": "memory",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "''"
-        },
-        "background_image": {
-          "name": "background_image",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "active_preset_id": {
-          "name": "active_preset_id",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
         }
       },
       "indexes": {},
@@ -982,38 +1051,6 @@
           "notNull": true,
           "autoincrement": false,
           "default": "'{{system_prefix}}{{system_prompt}}\n{{character_desc}}\n{{personality}}\n{{scenario}}\n{{user_desc}}{{system_suffix}}'"
-        },
-        "use_card_system_prompt": {
-          "name": "use_card_system_prompt",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": true
-        },
-        "use_post_history": {
-          "name": "use_post_history",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": true
-        },
-        "label_sections": {
-          "name": "label_sections",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": true
-        },
-        "note_in_user_message": {
-          "name": "note_in_user_message",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": false
         }
       },
       "indexes": {},
@@ -1057,7 +1094,7 @@
           "name": "enable",
           "type": "integer",
           "primaryKey": false,
-          "notNull": false,
+          "notNull": true,
           "autoincrement": false,
           "default": true
         },
@@ -1065,7 +1102,7 @@
           "name": "insertion_order",
           "type": "integer",
           "primaryKey": false,
-          "notNull": false,
+          "notNull": true,
           "autoincrement": false,
           "default": 100
         },
@@ -1073,7 +1110,7 @@
           "name": "case_sensitive",
           "type": "integer",
           "primaryKey": false,
-          "notNull": false,
+          "notNull": true,
           "autoincrement": false,
           "default": true
         },
@@ -1088,9 +1125,40 @@
           "name": "priority",
           "type": "integer",
           "primaryKey": false,
-          "notNull": false,
+          "notNull": true,
           "autoincrement": false,
           "default": 100
+        },
+        "selective": {
+          "name": "selective",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": false
+        },
+        "constant": {
+          "name": "constant",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": false
+        },
+        "comment": {
+          "name": "comment",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "''"
+        },
+        "secondary_keys": {
+          "name": "secondary_keys",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
         }
       },
       "indexes": {},
@@ -1153,6 +1221,14 @@
         },
         "recursive_scanning": {
           "name": "recursive_scanning",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false,
+          "default": false
+        },
+        "active": {
+          "name": "active",
           "type": "integer",
           "primaryKey": false,
           "notNull": false,

@@ -1,28 +1,29 @@
-import { Octicons } from '@expo/vector-icons'
+import Octicons from '@react-native-vector-icons/octicons/static'
 import { TouchableOpacity, View } from 'react-native'
 import Animated, { ZoomIn, ZoomOut } from 'react-native-reanimated'
 
-import { Chats, useInference } from '@lib/state/Chat'
+import { ChatSwipe } from '@db/schema'
+import { useInference } from '@lib/state/Chat'
 import { Logger } from '@lib/state/Logger'
-import { useTTS } from '@lib/state/TTS'
+import { useTTSStore } from '@lib/state/TTS'
 import { Theme } from '@lib/theme/ThemeManager'
 
 type TTSProps = {
-    index: number
+    swipe: ChatSwipe
 }
 
-const ChatTTS: React.FC<TTSProps> = ({ index }) => {
+const ChatTTS: React.FC<TTSProps> = ({ swipe }) => {
     const { color } = Theme.useTheme()
-    const { startTTS, activeChatIndex, stopTTS, enabled } = useTTS()
-    const { swipeText } = Chats.useSwipeData(index)
+    const { startTTS, activeSwipeId, stopTTS, enabled } = useTTSStore()
+    const swipeText = swipe.swipe
     const nowGenerating = useInference((state) => state.nowGenerating)
-    const isSpeaking = index === activeChatIndex
+    const isSpeaking = swipe.id === activeSwipeId
     const handleSpeak = async () => {
-        Logger.info('Starting TTS')
-        swipeText && (await startTTS(swipeText, index))
+        swipeText && (await startTTS(swipeText, swipe.id))
     }
 
     const handleStopSpeaking = async () => {
+        // eslint-disable-next-line i18next/no-literal-string
         Logger.info('TTS stopped')
         await stopTTS()
     }

@@ -1,4 +1,5 @@
-import { AntDesign } from '@expo/vector-icons'
+import AntDesign from '@react-native-vector-icons/ant-design/static'
+import { Trans } from 'react-i18next'
 import { Text, View } from 'react-native'
 
 import { Theme } from '@lib/theme/ThemeManager'
@@ -20,7 +21,7 @@ const ModelEmpty = () => {
                     fontStyle: 'italic',
                     fontSize: fontSize.l,
                 }}>
-                No Models Found. Try Importing Some!
+                <Trans i18nKey="model.empty" />
             </Text>
         </View>
     )

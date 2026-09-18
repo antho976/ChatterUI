@@ -1,35 +1,36 @@
-import { AntDesign } from '@expo/vector-icons'
+import AntDesign from '@react-native-vector-icons/ant-design/static'
 import { useLiveQuery } from 'drizzle-orm/expo-sqlite'
 import { Redirect } from 'expo-router'
 import { useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native'
 import { KeyboardAwareScrollView } from 'react-native-keyboard-controller'
 import { SafeAreaView } from 'react-native-safe-area-context'
-import { useShallow } from 'zustand/react/shallow'
 
 import ThemedButton from '@components/buttons/ThemedButton'
 import DropdownSheet from '@components/input/DropdownSheet'
 import ThemedTextInput from '@components/input/ThemedTextInput'
 import Alert from '@components/views/Alert'
 import HeaderTitle from '@components/views/HeaderTitle'
+import { ChatPresetType } from '@db/schema'
+import { useLiveQueryJoined } from '@lib/hooks/LiveQueryJoined'
 import { Chats } from '@lib/state/Chat'
 import { ChatPresets } from '@lib/state/ChatPresets'
 import { Logger } from '@lib/state/Logger'
 import { Theme } from '@lib/theme/ThemeManager'
-import { ChatPresetType } from 'db/schema'
 
 type GiveTarget = Awaited<ReturnType<typeof ChatPresets.db.query.giveTargets>>[0]
 
 const ChatPresetsScreen = () => {
     const styles = useStyles()
+    const { t } = useTranslation()
     const { color, spacing } = Theme.useTheme()
-    const { chatId, activePresetId, setActivePreset } = Chats.useChatState(
-        useShallow((state) => ({
-            chatId: state.data?.id,
-            activePresetId: state.data?.active_preset_id,
-            setActivePreset: state.setActivePreset,
-        }))
-    )
+    const { chatId } = Chats.useChat()
+    const { data: chatData } = useLiveQueryJoined(Chats.db.live.chat(chatId ?? -1), [chatId], {
+        deepCheck: true,
+    })
+    const activePresetId = chatData?.active_preset_id
+    const setActivePreset = Chats.db.mutate.updateActivePreset
     const { data: presets } = useLiveQuery(ChatPresets.db.query.presetsForChatQuery(chatId ?? -1), [
         chatId,
     ])
@@ -54,28 +55,28 @@ const ChatPresetsScreen = () => {
         if (!editing) return
         const data = { ...editing.data, name: editing.data.name.trim() }
         if (!data.name) {
-            Logger.errorToast('Preset name cannot be empty')
+            Logger.errorToast(t('chatPresets.toast.nameEmpty'))
             return
         }
         if (editing.id) {
             await ChatPresets.db.mutate.updatePreset(editing.id, data)
-            Logger.infoToast('Preset saved')
+            Logger.infoToast(t('chatPresets.toast.saved'))
         } else {
             const id = await ChatPresets.db.mutate.createPreset(chatId, data)
             await setActivePreset(chatId, id)
-            Logger.infoToast('Preset created and activated')
+            Logger.infoToast(t('chatPresets.toast.created'))
         }
         setEditing(undefined)
     }
 
     const handleDelete = (preset: ChatPresetType) => {
         Alert.alert({
-            title: 'Delete Preset',
-            description: `Delete '${preset.name}'? Chats it was given to lose it as well.`,
+            title: t('chatPresets.delete.title'),
+            description: t('chatPresets.delete.description', { name: preset.name }),
             buttons: [
-                { label: 'Cancel' },
+                { label: t('common.actions.cancel') },
                 {
-                    label: 'Delete',
+                    label: t('common.actions.delete'),
                     type: 'warning',
                     onPress: async () => {
                         await ChatPresets.db.mutate.deletePreset(preset.id)
@@ -88,12 +89,12 @@ const ChatPresetsScreen = () => {
 
     const handleRemoveFromChat = (preset: ChatPresetType) => {
         Alert.alert({
-            title: 'Remove Preset',
-            description: `Remove '${preset.name}' from this chat? The owner chat keeps it.`,
+            title: t('chatPresets.remove.title'),
+            description: t('chatPresets.remove.description', { name: preset.name }),
             buttons: [
-                { label: 'Cancel' },
+                { label: t('common.actions.cancel') },
                 {
-                    label: 'Remove',
+                    label: t('chatPresets.remove.confirm'),
                     type: 'warning',
                     onPress: async () => {
                         await ChatPresets.db.mutate.removeFromChat(preset.id, chatId)
@@ -107,7 +108,7 @@ const ChatPresetsScreen = () => {
     const handleOpenGive = async (preset: ChatPresetType) => {
         const targets = await ChatPresets.db.query.giveTargets(preset.id, chatId)
         if (targets.length === 0) {
-            Logger.infoToast('No other chats of this character to give this preset to')
+            Logger.infoToast(t('chatPresets.noGiveTargets'))
             return
         }
         setGiving({ preset, targets })
@@ -116,7 +117,7 @@ const ChatPresetsScreen = () => {
     const handleGive = async (target: GiveTarget) => {
         if (!giving) return
         await ChatPresets.db.mutate.giveToChat(giving.preset.id, target.id)
-        Logger.infoToast(`Given to '${target.name}'`)
+        Logger.infoToast(t('chatPresets.given', { name: target.name }))
         setGiving(undefined)
     }
 
@@ -127,31 +128,33 @@ const ChatPresetsScreen = () => {
             setEditing({ ...editing, data: { ...data, ...patch } })
         return (
             <View style={styles.card}>
-                <Text style={styles.cardTitle}>{editing.id ? 'Edit Preset' : 'New Preset'}</Text>
+                <Text style={styles.cardTitle}>
+                    {editing.id ? t('chatPresets.edit') : t('chatPresets.new')}
+                </Text>
                 <ThemedTextInput
-                    label="Name"
+                    label={t('chatPresets.name')}
                     value={data.name}
                     onChangeText={(name) => update({ name })}
                 />
                 <ThemedTextInput
-                    label="System Prompt"
-                    description="Replaces the system prompt for this chat. Use {{original}} to include the card or Formatting prompt. Leave blank to keep it."
+                    label={t('chatPresets.systemPrompt')}
+                    description={t('chatPresets.systemPromptDescription')}
                     multiline
                     numberOfLines={6}
                     value={data.system_prompt}
                     onChangeText={(system_prompt) => update({ system_prompt })}
                 />
                 <ThemedTextInput
-                    label="Persona"
-                    description="Replaces the User description for this chat. Leave blank to keep the current User."
+                    label={t('chatPresets.persona')}
+                    description={t('chatPresets.personaDescription')}
                     multiline
                     numberOfLines={6}
                     value={data.persona}
                     onChangeText={(persona) => update({ persona })}
                 />
                 <ThemedTextInput
-                    label="Rules"
-                    description="Sent after the chat history so they are followed closely. Replaces the character's rules. Leave blank to keep them."
+                    label={t('chatPresets.rules')}
+                    description={t('chatPresets.rulesDescription')}
                     multiline
                     numberOfLines={6}
                     value={data.rules}
@@ -159,11 +162,15 @@ const ChatPresetsScreen = () => {
                 />
                 <View style={styles.row}>
                     <ThemedButton
-                        label="Cancel"
+                        label={t('common.actions.cancel')}
                         variant="secondary"
                         onPress={() => setEditing(undefined)}
                     />
-                    <ThemedButton label="Save" iconName="save" onPress={handleSave} />
+                    <ThemedButton
+                        label={t('common.actions.save')}
+                        iconName="save"
+                        onPress={handleSave}
+                    />
                 </View>
             </View>
         )
@@ -185,25 +192,25 @@ const ChatPresetsScreen = () => {
                     <View style={{ flex: 1 }}>
                         <Text style={styles.presetName}>{preset.name}</Text>
                         <Text style={styles.presetMeta}>
-                            {owner ? 'Created in this chat' : 'Given by another chat'}
-                            {active ? '  ·  Active' : ''}
+                            {owner ? t('chatPresets.createdHere') : t('chatPresets.givenByOther')}
+                            {active ? `  ·  ${t('chatPresets.active')}` : ''}
                         </Text>
                     </View>
                 </TouchableOpacity>
                 <Text style={styles.presetPreview} numberOfLines={2}>
                     {[
-                        preset.system_prompt && 'System prompt',
-                        preset.persona && 'Persona',
-                        preset.rules && 'Rules',
+                        preset.system_prompt && t('chatPresets.systemPrompt'),
+                        preset.persona && t('chatPresets.persona'),
+                        preset.rules && t('chatPresets.rules'),
                     ]
                         .filter((item) => item)
-                        .join(', ') || 'Empty preset'}
+                        .join(', ') || t('chatPresets.emptyPreset')}
                 </Text>
                 <View style={styles.row}>
                     {owner ? (
                         <>
                             <ThemedButton
-                                label="Edit"
+                                label={t('common.actions.edit')}
                                 iconName="edit"
                                 variant="secondary"
                                 onPress={() =>
@@ -219,13 +226,13 @@ const ChatPresetsScreen = () => {
                                 }
                             />
                             <ThemedButton
-                                label="Give"
+                                label={t('chatPresets.give')}
                                 iconName="export"
                                 variant="secondary"
                                 onPress={() => handleOpenGive(preset)}
                             />
                             <ThemedButton
-                                label="Delete"
+                                label={t('common.actions.delete')}
                                 iconName="delete"
                                 variant="critical"
                                 onPress={() => handleDelete(preset)}
@@ -233,7 +240,7 @@ const ChatPresetsScreen = () => {
                         </>
                     ) : (
                         <ThemedButton
-                            label="Remove From Chat"
+                            label={t('chatPresets.removeFromChat')}
                             iconName="close"
                             variant="critical"
                             onPress={() => handleRemoveFromChat(preset)}
@@ -246,31 +253,29 @@ const ChatPresetsScreen = () => {
 
     return (
         <SafeAreaView edges={['bottom']} style={{ flex: 1 }}>
-            <HeaderTitle title="Chat Presets" />
+            <HeaderTitle title={t('chatPresets.title')} />
             <KeyboardAwareScrollView
                 bottomOffset={16}
                 showsVerticalScrollIndicator={false}
                 keyboardShouldPersistTaps="always"
                 contentContainerStyle={styles.container}>
-                <Text style={styles.hint}>
-                    A preset bundles a system prompt, persona and rules for this chat. Presets are
-                    only shown in the chat they were created in and in chats they were given to.
-                    Only the original chat can edit, delete or give a preset.
-                </Text>
+                <Text style={styles.hint}>{t('chatPresets.hint')}</Text>
 
                 {giving && (
                     <View style={styles.card}>
-                        <Text style={styles.cardTitle}>{`Give "${giving.preset.name}" to`}</Text>
+                        <Text style={styles.cardTitle}>
+                            {t('chatPresets.giveTitle', { name: giving.preset.name })}
+                        </Text>
                         <DropdownSheet
                             data={giving.targets}
                             labelExtractor={(item) => item.name}
                             onChangeValue={handleGive}
-                            placeholder="Select a chat..."
-                            modalTitle="Give Preset To Chat"
+                            placeholder={t('chatPresets.givePlaceholder')}
+                            modalTitle={t('chatPresets.giveModalTitle')}
                             search
                         />
                         <ThemedButton
-                            label="Cancel"
+                            label={t('common.actions.cancel')}
                             variant="secondary"
                             onPress={() => setGiving(undefined)}
                         />
@@ -281,14 +286,14 @@ const ChatPresetsScreen = () => {
 
                 {!editing && (
                     <ThemedButton
-                        label="New Preset"
+                        label={t('chatPresets.new')}
                         iconName="plus"
                         onPress={() => setEditing({ data: ChatPresets.blankPreset() })}
                     />
                 )}
 
                 {presets.length === 0 && !editing && (
-                    <Text style={styles.empty}>No presets in this chat yet.</Text>
+                    <Text style={styles.empty}>{t('chatPresets.empty')}</Text>
                 )}
                 {presets.map(renderPreset)}
                 <View style={{ height: spacing.xl3 }} />

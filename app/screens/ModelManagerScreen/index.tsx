@@ -1,11 +1,12 @@
 import { useLiveQuery } from 'drizzle-orm/expo-sqlite'
 import { useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { SectionList } from 'react-native'
 import Animated, { Easing, SlideInLeft, SlideOutLeft } from 'react-native-reanimated'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import { useShallow } from 'zustand/react/shallow'
 
-import ThemedButton from '@components/buttons/ThemedButton'
+import HorizontalSelector from '@components/input/HorizontalSelector'
 import SectionTitle from '@components/text/SectionTitle'
 import HeaderButton from '@components/views/HeaderButton'
 import HeaderTitle from '@components/views/HeaderTitle'
@@ -20,6 +21,7 @@ import ModelNewMenu from './ModelNewMenu'
 import ModelSettings from './ModelSettings'
 
 const ModelManagerScreen = () => {
+    const { t } = useTranslation()
     const { spacing } = Theme.useTheme()
 
     const { data: mmprojLinks } = useLiveQuery(Model.getMMPROJLinks())
@@ -42,12 +44,12 @@ const ModelManagerScreen = () => {
 
     const data = [
         {
-            title: 'Models',
-            data: modelList,
+            title: t('model.title'),
+            data: modelList ?? [],
         },
         {
-            title: 'Multimodal Adapters',
-            data: mmprojList,
+            title: t('model.mtmd'),
+            data: mmprojList ?? [],
         },
     ]
 
@@ -60,7 +62,7 @@ const ModelManagerScreen = () => {
                 paddingBottom: spacing.xl2,
                 flex: 1,
             }}>
-            <HeaderTitle title={showSettings ? 'Model Settings' : 'Models'} />
+            <HeaderTitle title={showSettings ? t('model.settings.title') : t('model.title')} />
             <HeaderButton
                 headerRight={() =>
                     !showSettings && (
@@ -128,9 +130,14 @@ const ModelManagerScreen = () => {
                     exit={() => setShowSettings(false)}
                 />
             )}
-            <ThemedButton
-                label={showSettings ? 'Back To Models' : 'Show Settings'}
-                onPress={() => setShowSettings(!showSettings)}
+            <HorizontalSelector
+                style={{ flex: 0 }}
+                values={[
+                    { label: t('model.title'), value: false },
+                    { label: t('common.navigation.settings'), value: true },
+                ]}
+                selected={showSettings}
+                onPress={setShowSettings}
             />
         </SafeAreaView>
     )

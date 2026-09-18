@@ -1,4 +1,6 @@
-import { MaterialIcons } from '@expo/vector-icons'
+import MaterialIcons, {
+    MaterialIconsIconName,
+} from '@react-native-vector-icons/material-icons/static'
 import { useEffect, useRef } from 'react'
 import { Pressable, Text, View, ViewStyle } from 'react-native'
 import Animated, {
@@ -14,7 +16,7 @@ type HorizontalSelectorProps<T> = {
     values: {
         label: string
         value: T
-        icon?: keyof typeof MaterialIcons.glyphMap
+        icon?: MaterialIconsIconName
         iconSize?: number
     }[]
     selected: T
@@ -69,6 +71,7 @@ const HorizontalSelector = <T,>({
                     style={{
                         flex: style?.flex ?? 1,
                         color: color.text._100,
+                        paddingBottom: spacing.s,
                     }}>
                     {label}
                 </Text>
@@ -83,7 +86,6 @@ const HorizontalSelector = <T,>({
                     backgroundColor: color.neutral._100,
                     borderWidth: 2,
                     borderRadius: 8,
-                    marginTop: 8,
                 }}>
                 <Animated.View
                     style={[

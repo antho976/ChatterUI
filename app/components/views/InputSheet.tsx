@@ -1,16 +1,16 @@
 import { getStringAsync } from 'expo-clipboard'
 import React, { useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { Text, View } from 'react-native'
 
 import ThemedButton from '@components/buttons/ThemedButton'
 import ThemedTextInput from '@components/input/ThemedTextInput'
 import { Theme } from '@lib/theme/ThemeManager'
 
-import BottomSheet from './BottomSheet'
+import BottomSheet, { BottomSheetRef } from './BottomSheet'
 
 export type InputSheetProps = {
-    visible: boolean
-    setVisible: (visible: boolean) => void
+    ref: BottomSheetRef
     onConfirm: (text: string) => void
     onClose?: () => void
     title?: string
@@ -21,11 +21,13 @@ export type InputSheetProps = {
     autoFocus?: boolean
     defaultValue?: string
     multiline?: boolean
+    confirmLabel?: string
 }
 
+export type InputSheetRef = BottomSheetRef
+
 const InputSheet: React.FC<InputSheetProps> = ({
-    visible,
-    setVisible,
+    ref,
     onConfirm = (text) => {},
     onClose = () => {},
     title = '',
@@ -35,19 +37,21 @@ const InputSheet: React.FC<InputSheetProps> = ({
     autoFocus = false,
     defaultValue = '',
     multiline = false,
+    confirmLabel,
 }) => {
+    const { t } = useTranslation()
     const [text, setText] = useState(defaultValue)
     const [errorMessage, setErrorMessage] = useState('')
     const { color, fontSize, spacing } = Theme.useTheme()
 
     const handleClose = () => {
-        setVisible(false)
+        ref.current?.close()
         onClose()
         setErrorMessage('')
     }
 
     return (
-        <BottomSheet visible={visible} setVisible={setVisible} onClose={handleClose}>
+        <BottomSheet ref={ref} onRequestClose={handleClose}>
             <View style={{ rowGap: spacing.xl }}>
                 {title && (
                     <Text
@@ -87,7 +91,11 @@ const InputSheet: React.FC<InputSheetProps> = ({
                         flexDirection: 'row',
                         justifyContent: 'space-between',
                     }}>
-                    <ThemedButton label="Cancel" variant="secondary" onPress={handleClose} />
+                    <ThemedButton
+                        label={t('common.actions.close')}
+                        variant="secondary"
+                        onPress={handleClose}
+                    />
                     <View
                         style={{
                             flexDirection: 'row',
@@ -111,7 +119,7 @@ const InputSheet: React.FC<InputSheetProps> = ({
                         />
                     </View>
                     <ThemedButton
-                        label="Confirm"
+                        label={confirmLabel ?? t('common.actions.save')}
                         onPress={() => {
                             const result = verifyText(text)
                             if (result) setErrorMessage(result)

@@ -1,4 +1,5 @@
 import { FlashList } from '@shopify/flash-list'
+import { useTranslation } from 'react-i18next'
 import { Text, View } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import { useShallow } from 'zustand/react/shallow'
@@ -12,6 +13,7 @@ import { Theme } from '@lib/theme/ThemeManager'
 import { saveStringToDownload } from '@lib/utils/File'
 
 const LogsScreen = () => {
+    const { t } = useTranslation()
     const { color } = Theme.useTheme()
     const { logs, flushLogs } = Logger.useLoggerStore(
         useShallow((state) => ({
@@ -22,26 +24,28 @@ const LogsScreen = () => {
 
     const handleExportLogs = () => {
         if (!logs) return
+        // eslint-disable-next-line i18next/no-literal-string, react-hooks/purity
+        const filename = `logs-chatterui-${Date.now()}.txt`
         const data = logs
             .map((item) => `${Logger.LevelName[item.level]} ${item.timestamp}: ${item.message}`)
             .join('\n')
-        saveStringToDownload(data, `logs-chatterui-${Date.now()}.txt`, 'utf8')
+        saveStringToDownload(data, filename, 'utf8')
             .then(() => {
-                Logger.infoToast('Logs Downloaded!')
+                Logger.infoToast(t('logs.toast.downloadok'))
             })
             .catch((e) => {
-                Logger.errorToast(`Could Not Export Logs: ${e}`)
+                Logger.errorToast(t('logs.toast.downloaderror'), e)
             })
     }
 
     const handleFlushLogs = () => {
         Alert.alert({
-            title: `Delete Logs`,
-            description: `Are you sure you want to delete all logs? This cannot be undone.`,
+            title: t('logs.alert.delete.title'),
+            description: t('logs.alert.delete.description'),
             buttons: [
-                { label: 'Cancel' },
+                { label: t('common.actions.cancel') },
                 {
-                    label: 'Delete Logs',
+                    label: t('logs.alert.delete.title'),
                     onPress: async () => {
                         flushLogs()
                     },
@@ -64,7 +68,7 @@ const LogsScreen = () => {
             triggerIcon="setting"
             buttons={[
                 {
-                    label: 'Export Logs',
+                    label: t('logs.export'),
                     icon: 'export',
                     onPress: (close) => {
                         handleExportLogs()
@@ -72,7 +76,7 @@ const LogsScreen = () => {
                     },
                 },
                 {
-                    label: 'Flush Logs',
+                    label: t('logs.flush'),
                     icon: 'delete',
                     onPress: (close) => {
                         handleFlushLogs()
@@ -90,7 +94,7 @@ const LogsScreen = () => {
             style={{
                 flex: 1,
             }}>
-            <HeaderTitle title="Logs" />
+            <HeaderTitle title={t('logs.title')} />
             <HeaderButton headerRight={headerRight} />
             <View
                 style={{

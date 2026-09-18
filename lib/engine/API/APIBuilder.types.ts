@@ -11,6 +11,13 @@ export interface UISettings {
     editableCompletionPath: boolean
     editableModelPath: boolean
     selectableModel: boolean
+    display?: {
+        name?: string
+        icon?: string // Maps to AntDesign, refer to https://oblador.github.io/react-native-vector-icons/#AntDesign
+        description?: string
+        priority?: number
+        link?: string
+    }
 }
 
 // These are the actual values being stored by ChatterUI
@@ -21,6 +28,7 @@ export interface APIValues {
     firstMessage: string
     key: string
     model: any
+    customFields?: string
     // config name is unique and defines which template to use on generation
     configName: string
 }

@@ -1,12 +1,13 @@
-import { AntDesign } from '@expo/vector-icons'
+import AntDesign from '@react-native-vector-icons/ant-design/static'
 import { useMigrations } from 'drizzle-orm/expo-sqlite/migrator'
 import { SplashScreen } from 'expo-router'
-import { useEffect, useState } from 'react'
+import { useEffect } from 'react'
+import { useTranslation } from 'react-i18next'
 import { Linking, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
 
 import ThemedButton from '@components/buttons/ThemedButton'
 import HeaderTitle from '@components/views/HeaderTitle'
-import { db } from '@db'
+import { db } from '@db/db'
 import useLocalAuth from '@lib/hooks/LocalAuth'
 import { Theme } from '@lib/theme/ThemeManager'
 import { loadChatOnInit, startupApp, useTextIntentFocus } from '@lib/utils/Startup'
@@ -14,13 +15,9 @@ import CharacterList from '@screens/CharacterListScreen'
 
 import migrations from '../db/migrations/migrations'
 
-const Home = () => {
-    const { color } = Theme.useTheme()
-    const styles = useStyles()
+const useStartupRoutine = () => {
     const { success, error } = useMigrations(db, migrations)
     const { authorized, retry } = useLocalAuth()
-
-    const [firstRender, setFirstRender] = useState<boolean>(true)
 
     useTextIntentFocus()
 
@@ -38,26 +35,30 @@ const Home = () => {
          */
         if (success) {
             startupApp()
-            setFirstRender(false)
             SplashScreen.hideAsync()
         }
         if (error) SplashScreen.hideAsync()
     }, [success, error])
 
+    return { authorized, retry, error, success }
+}
+
+const Home = () => {
+    const { color } = Theme.useTheme()
+    const styles = useStyles()
+    const { authorized, retry, error, success } = useStartupRoutine()
+    const { t } = useTranslation()
     if (error)
         return (
             <View style={styles.centeredContainer}>
                 <HeaderTitle />
-                <Text style={styles.title}>Database Migration Failed!</Text>
+                <Text style={styles.title}>{t('db.migrationerror.title')}</Text>
                 <Text style={styles.errorLog}>{error.message}</Text>
-                <Text style={styles.subtitle}>
-                    If you are seeing this, something has gone terribly wrong. Report this error
-                    below, include a screenshot of the log above.
-                </Text>
+                <Text style={styles.subtitle}>{t('db.migrationerror.description')}</Text>
                 <Text style={styles.subtitle} />
                 <ThemedButton
                     variant="secondary"
-                    label="Github Repository"
+                    label="Github"
                     iconName="github"
                     iconSize={20}
                     onPress={() => {
@@ -77,13 +78,13 @@ const Home = () => {
                     style={{ marginBottom: 12 }}
                     color={color.text._500}
                 />
-                <Text style={styles.title}>Authentication Required</Text>
+                <Text style={styles.title}>{t('auth.authorizationRequired')}</Text>
                 <TouchableOpacity onPress={retry} style={styles.button}>
-                    <Text style={styles.buttonText}>Try Again</Text>
+                    <Text style={styles.buttonText}>{t('common.actions.tryAgain')}</Text>
                 </TouchableOpacity>
             </View>
         )
-    if (!firstRender && success) return <CharacterList />
+    if (success) return <CharacterList />
     return <HeaderTitle />
 }
 

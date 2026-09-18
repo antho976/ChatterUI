@@ -48,16 +48,17 @@ export const buildRequest = async ({
     }
 }
 
-const openAIRequest = async ({ payloadFields, model, stop, prompt }: Field) => {
+const openAIRequest = async ({ payloadFields, model, stop, prompt, custom }: Field) => {
     return {
         ...payloadFields,
         ...model,
         ...stop,
         ...prompt,
+        ...custom,
     }
 }
 
-const ollamaRequest = async ({ payloadFields, model, stop, prompt }: Field) => {
+const ollamaRequest = async ({ payloadFields, model, stop, prompt, custom }: Field) => {
     let keep_alive = 5
     if (payloadFields.keep_alive) {
         keep_alive = payloadFields.keep_alive as number
@@ -74,12 +75,13 @@ const ollamaRequest = async ({ payloadFields, model, stop, prompt }: Field) => {
         ...prompt,
         raw: true,
         stream: true,
+        ...custom,
     }
 }
 
 const cohereRequest = async (
     config: APIConfiguration,
-    { payloadFields, model, stop, prompt }: Field
+    { payloadFields, model, stop, prompt, custom }: Field
 ) => {
     if (config.request.completionType.type === 'textCompletions') {
         return
@@ -104,13 +106,14 @@ const cohereRequest = async (
         preamble: preamble.message,
         chat_history: history,
         [config.request.promptKey]: last?.message ?? '',
+        ...custom,
     }
 }
 
 const claudeRequest = async (
     config: APIConfiguration,
     instruct: InstructType,
-    { payloadFields, model, stop, prompt }: Field
+    { payloadFields, model, stop, prompt, custom }: Field
 ) => {
     const systemPrompt = instruct.system_prompt
     const systemRole =
@@ -132,10 +135,11 @@ const claudeRequest = async (
         ...model,
         ...stop,
         ...finalPrompt,
+        ...custom,
     }
 }
 
-const hordeRequest = async ({ payloadFields, model, stop, prompt }: Field) => {
+const hordeRequest = async ({ payloadFields, model, stop, prompt, custom }: Field) => {
     return {
         params: {
             ...payloadFields,
@@ -153,6 +157,7 @@ const hordeRequest = async ({ payloadFields, model, stop, prompt }: Field) => {
         worker_blacklist: false,
         models: model.model,
         dry_run: false,
+        ...custom,
     }
 }
 
@@ -240,7 +245,51 @@ const buildFields = async (
 
     const prompt = { [config.request.promptKey]: promptData }
 
-    return { payloadFields, model, stop, prompt, length }
+    const custom = values.customFields ? buildCustomFields(values.customFields) : {}
+
+    return { payloadFields, model, stop, prompt, length, custom }
+}
+
+const buildCustomFields = (customFieldsBody: string) => {
+    const fieldBody: Record<string, any> = {}
+
+    customFieldsBody
+        .split('\n')
+        .map((line) => line.trim())
+        .filter(Boolean)
+        .forEach((line) => {
+            const eqIndex = line.indexOf('=')
+            if (eqIndex === -1) return
+
+            const key = line.slice(0, eqIndex).trim()
+            const rawValue = line.slice(eqIndex + 1).trim()
+
+            let value: any = rawValue
+            try {
+                value = JSON.parse(rawValue)
+            } catch {}
+
+            const parts = key.split('.')
+            let current = fieldBody
+
+            for (let i = 0; i < parts.length - 1; i++) {
+                const part = parts[i]
+
+                if (
+                    current[part] === undefined ||
+                    typeof current[part] !== 'object' ||
+                    current[part] === null
+                ) {
+                    current[part] = {}
+                }
+
+                current = current[part]
+            }
+
+            current[parts[parts.length - 1]] = value
+        })
+
+    return fieldBody
 }
 
 const getModelName = (config: APIConfiguration, values: APIValues) => {
@@ -274,10 +323,21 @@ const getSamplerFields = (
             const value = samplers[item.samplerID]
             const samplerItem = Samplers[item.samplerID]
             let cleanvalue = value
-            if (typeof value === 'number')
-                if (item.samplerID === 'max_length' && max_length) {
-                    cleanvalue = Math.min(value, max_length)
-                } else if (samplerItem.values.type === 'integer') cleanvalue = Math.floor(value)
+            if (typeof value === 'number') {
+                const type = samplerItem.values.type
+                if (
+                    type === 'float' ||
+                    (type === 'integer' && value === samplerItem.values.ignoreIf)
+                ) {
+                    return {}
+                }
+
+                if (item.samplerID === 'max_length') {
+                    cleanvalue = Math.min(value, max_length ?? value)
+                } else if (type === 'integer') {
+                    cleanvalue = Math.floor(value)
+                }
+            }
             if (item.samplerID === SamplerID.DRY_SEQUENCE_BREAK) {
                 //@ts-expect-error. This is due to a migration
                 cleanvalue = (value as string).split(',')
